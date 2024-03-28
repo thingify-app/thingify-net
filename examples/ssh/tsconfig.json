@@ -1,0 +1,6 @@
+{
+    "compilerOptions": {
+        "types": ["@types/golang-wasm-exec"],
+        "lib": ["ES2015"]
+    }
+}
