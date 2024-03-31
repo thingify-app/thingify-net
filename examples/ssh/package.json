@@ -13,6 +13,7 @@
     },
     "dependencies": {
         "@types/golang-wasm-exec": "^1.15.2",
+        "thingrtc-peer": "^0.0.0",
         "xterm": "^5.3.0"
     }
 }
