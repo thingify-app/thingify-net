@@ -1,6 +1,9 @@
 import { Pairing, PairingServer, ThingPeer } from 'thingrtc-peer';
 import { Terminal } from 'xterm';
 
+const REMOTE_HOST = '10.0.1.0';
+const MTU_BYTES = 1024;
+
 export async function runWasm() {
     const go = new Go();
     const result = await WebAssembly.instantiateStreaming(fetch('main.wasm'), go.importObject);
@@ -8,11 +11,17 @@ export async function runWasm() {
     await go.run(inst);
 }
 
+const usernameField = document.getElementById('username') as HTMLInputElement;
+const passwordField = document.getElementById('password') as HTMLInputElement;
+const connectButton = document.getElementById('connect') as HTMLButtonElement;
+const clearPairingsButton = document.getElementById('clearPairings') as HTMLButtonElement;
+
 const term = new Terminal();
 term.open(document.getElementById('terminal')!);
-term.write('Hello from \x1B[1;3;31mxterm.js\x1B[0m $ ')
 term.onData(str => {
-    console.log(str);
+    if (globalThis.stdInListener) {
+        globalThis.stdInListener(str);
+    }
 });
 
 globalThis.writeToConsole = (str: string) => {
@@ -21,7 +30,7 @@ globalThis.writeToConsole = (str: string) => {
 
 // Create a global buffer for WASM to write to, before calling sendToPeer
 // with the actual number of bytes to send from the buffer.
-const messageBuffer = new Uint8Array(2048);
+const messageBuffer = new Uint8Array(MTU_BYTES);
 globalThis.messageBuffer = messageBuffer;
 globalThis.sendToPeer = (len: number) => {
     const buffer = messageBuffer.subarray(0, len);
@@ -41,7 +50,7 @@ peer.on('connectionStateChanged', state => {
 
 // Create a global buffer for WASM to read from, before calling its
 // messageListener function to read the buffer.
-const outgoingMessageBuffer = new Uint8Array(2048);
+const outgoingMessageBuffer = new Uint8Array(MTU_BYTES);
 globalThis.outgoingMessageBuffer = outgoingMessageBuffer;
 peer.on('binaryMessage', message => {
     console.log('Binary message received (JS)');
@@ -79,8 +88,16 @@ async function clearPairings() {
     await connect();
 }
 
+async function startInit() {
+    console.log('Initing...');
+    globalThis.init(REMOTE_HOST, usernameField.value, passwordField.value);
+}
+
 async function main() {
-    document.getElementById('clearPairings').addEventListener('click', () => {
+    connectButton.addEventListener('click', () => {
+        startInit();
+    });
+    clearPairingsButton.addEventListener('click', () => {
         clearPairings();
     });
     console.log('Connecting...');

@@ -17,6 +17,10 @@ const PAIRING_SERVER_URL = "https://thingify.deno.dev/pairing"
 const SIGNALLING_SERVER_URL = "wss://thingify.deno.dev/signalling"
 const DEFAULT_ADDRESS_RANGE = "10.0.1.0/24"
 
+// Not sure why MTU needs to be this, but higher values (e.g. 1200) result in
+// data channel messages not being sent - perhaps an SCTP limitation?
+const MTU_BYTES = 1024
+
 func setupTunInterface(name string) (io.ReadWriteCloser, error) {
 	tun, err := water.New(water.Config{
 		DeviceType: water.TUN,
@@ -39,7 +43,7 @@ func setupTunInterface(name string) (io.ReadWriteCloser, error) {
 		return nil, err
 	}
 
-	err = netlink.LinkSetMTU(link, 1200)
+	err = netlink.LinkSetMTU(link, MTU_BYTES)
 	if err != nil {
 		return nil, err
 	}
@@ -94,18 +98,18 @@ func listenOnTun(peer thingrtc.Peer) error {
 	}
 
 	peer.OnBinaryMessage(func(message []byte) {
-		fmt.Println("Message received")
+		fmt.Printf("Message received of length: %v\n", len(message))
 		tun.Write(message)
 	})
 
-	buffer := make([]byte, 2000)
+	buffer := make([]byte, MTU_BYTES)
 	for {
 		n, err := tun.Read(buffer)
 		if err != nil {
 			return err
 		}
 
-		fmt.Println("Sending message")
+		fmt.Printf("Sending message of length: %v\n", n)
 		peer.SendBinaryMessage(buffer[:n])
 	}
 }
