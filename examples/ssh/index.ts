@@ -19,6 +19,16 @@ globalThis.writeToConsole = (str: string) => {
     term.write(str);
 }
 
+// Create a global buffer for WASM to write to, before calling sendToPeer
+// with the actual number of bytes to send from the buffer.
+const messageBuffer = new Uint8Array(2048);
+globalThis.messageBuffer = messageBuffer;
+globalThis.sendToPeer = (len: number) => {
+    const buffer = messageBuffer.subarray(0, len);
+    console.log(`Sending message ${buffer}`);
+    peer.sendMessage(buffer);
+}
+
 const PAIRING_SERVER_URL = 'https://thingify.deno.dev/pairing';
 const SIGNALLING_SERVER_URL = 'wss://thingify.deno.dev/signalling';
 const pairingServer = new PairingServer(PAIRING_SERVER_URL);
@@ -28,9 +38,17 @@ const peer = new ThingPeer(SIGNALLING_SERVER_URL);
 peer.on('connectionStateChanged', state => {
     console.log(`Peer connection state: ${state}`);
 });
+
+// Create a global buffer for WASM to read from, before calling its
+// messageListener function to read the buffer.
+const outgoingMessageBuffer = new Uint8Array(2048);
+globalThis.outgoingMessageBuffer = outgoingMessageBuffer;
 peer.on('binaryMessage', message => {
-    console.log('Binary message received:');
-    console.log(message);
+    console.log('Binary message received (JS)');
+    outgoingMessageBuffer.set(new Uint8Array(message), 0);
+    if (globalThis.messageListener) {
+        globalThis.messageListener(message.byteLength);
+    }
 });
 
 async function tryPairing() {
@@ -65,7 +83,9 @@ async function main() {
     document.getElementById('clearPairings').addEventListener('click', () => {
         clearPairings();
     });
+    console.log('Connecting...');
     await connect();
+    console.log('Running wasm...');
     await runWasm();
 }
 

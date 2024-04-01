@@ -39,6 +39,11 @@ func setupTunInterface(name string) (io.ReadWriteCloser, error) {
 		return nil, err
 	}
 
+	err = netlink.LinkSetMTU(link, 1200)
+	if err != nil {
+		return nil, err
+	}
+
 	err = netlink.AddrAdd(link, addr)
 	if err != nil {
 		return nil, err
@@ -89,16 +94,18 @@ func listenOnTun(peer thingrtc.Peer) error {
 	}
 
 	peer.OnBinaryMessage(func(message []byte) {
+		fmt.Println("Message received")
 		tun.Write(message)
 	})
 
+	buffer := make([]byte, 2000)
 	for {
-		buffer := make([]byte, 2000)
 		n, err := tun.Read(buffer)
 		if err != nil {
 			return err
 		}
 
+		fmt.Println("Sending message")
 		peer.SendBinaryMessage(buffer[:n])
 	}
 }
