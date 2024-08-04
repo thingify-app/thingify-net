@@ -114,7 +114,20 @@ func listenOnTun(peer thingrtc.Peer) error {
 	}
 }
 
-func connect() error {
+func createPeer(withMedia bool) (thingrtc.Peer, error) {
+	if withMedia {
+		videoSource := thingrtc.CreateVideoMediaSource(640, 480)
+		codec, err := makeCodec()
+		if err != nil {
+			return nil, err
+		}
+		return thingrtc.NewPeerWithMedia(SIGNALLING_SERVER_URL, codec, videoSource), nil
+	} else {
+		return thingrtc.NewPeer(SIGNALLING_SERVER_URL), nil
+	}
+}
+
+func connect(withMedia bool) error {
 	pairing := createPairing()
 	pairingIds := pairing.GetAllPairingIds()
 	if len(pairingIds) == 0 {
@@ -122,7 +135,10 @@ func connect() error {
 	}
 	pairingId := pairingIds[0]
 
-	peer := thingrtc.NewPeer(SIGNALLING_SERVER_URL)
+	peer, err := createPeer(withMedia)
+	if err != nil {
+		return err
+	}
 
 	peer.OnConnectionStateChange(func(connectionState int) {
 		switch connectionState {
@@ -171,8 +187,15 @@ func main() {
 			{
 				Name:  "connect",
 				Usage: "Create an network interface to a peer",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "withMedia",
+						Usage: "Set to enable media (camera) streaming",
+						Value: false,
+					},
+				},
 				Action: func(ctx *cli.Context) error {
-					return connect()
+					return connect(ctx.Bool("withMedia"))
 				},
 			},
 		},
