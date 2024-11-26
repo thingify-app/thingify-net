@@ -144,8 +144,8 @@ github.com/stretchr/testify v1.8.3/go.mod h1:sz/lmYIOXD/1dqDmKjjqLyZ2RngseejIcXl
 github.com/stretchr/testify v1.8.4/go.mod h1:sz/lmYIOXD/1dqDmKjjqLyZ2RngseejIcXlSw2iwfAo=
 github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsTg=
 github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
-github.com/thingify-app/thing-rtc-go v0.0.0-20241126093153-687d3d608efb h1:NQVUrZbSV2VLHf703JKDwj+yvvxGHC3fWLWdB0FmIKI=
-github.com/thingify-app/thing-rtc-go v0.0.0-20241126093153-687d3d608efb/go.mod h1:5p0o3F2JhdHu/lI8PVhuJS1xgXmhiF8dFn0b/vzgSiw=
+github.com/thingify-app/thing-rtc-go v0.0.0-20241126093153-1ac64d464010 h1:4CCahumZb3EJp6WOD342ijLkbY9VobxteN1I4/zxXy0=
+github.com/thingify-app/thing-rtc-go v0.0.0-20241126093153-1ac64d464010/go.mod h1:5p0o3F2JhdHu/lI8PVhuJS1xgXmhiF8dFn0b/vzgSiw=
 github.com/urfave/cli/v2 v2.27.1 h1:8xSQ6szndafKVRmfyeUMxkNUJQMjL1F2zmsZ+qHpfho=
 github.com/urfave/cli/v2 v2.27.1/go.mod h1:8qnjx1vcq5s2/wpsqoZFndg2CE5tNFyrTvS6SinrnYQ=
 github.com/vishvananda/netlink v1.1.0 h1:1iyaYNBLmP6L0220aDnYQpo1QEV4t4hJ+xEEhhJH8j0=

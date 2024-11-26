@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/pion/mediadevices v0.6.1
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
-	github.com/thingify-app/thing-rtc-go v0.0.0-20241126093153-687d3d608efb
+	github.com/thingify-app/thing-rtc-go v0.0.0-20241126093153-1ac64d464010
 	github.com/urfave/cli/v2 v2.27.1
 	github.com/vishvananda/netlink v1.1.0
 )
