@@ -98,7 +98,6 @@ func listenOnTun(peer thingrtc.Peer) error {
 	}
 
 	peer.OnBinaryMessage(func(message []byte) {
-		fmt.Printf("Message received of length: %v\n", len(message))
 		tun.Write(message)
 	})
 
@@ -109,7 +108,6 @@ func listenOnTun(peer thingrtc.Peer) error {
 			return err
 		}
 
-		fmt.Printf("Sending message of length: %v\n", n)
 		peer.SendBinaryMessage(buffer[:n])
 	}
 }
