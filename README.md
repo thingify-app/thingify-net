@@ -65,33 +65,36 @@ To use the MAVLink GCS UI available at https://thingify.app, connect a Flight
 Controller to the machine running `thingify-net` via USB (e.g. a Raspberry Pi).
 
 To relay MAVLink packets to/from this USB device and the browser, we can use
-[MAVProxy](https://ardupilot.org/mavproxy/) and point it to the remote browser
-IP address (hardcoded as 10.0.1.2 currently). This assumes the USB serial device
-corresponding to the Flight Controller is `/dev/ttyACM0`:
+[mavp2p](https://github.com/bluenviron/mavp2p) and listen on the local
+interface. This assumes the USB serial device corresponding to the Flight
+Controller is `/dev/ttyACM0`:
 
 ```bash
-mavproxy.py --master=/dev/ttyACM0 --out 10.0.1.2 --daemon --state-basedir="/home/pi" --cmd="set heartbeat 0;"
+./mavp2p serial:/dev/ttyACM0:57600 udps:0.0.0.0:14550 --hb-version=2
 ```
 
 ## Start automatically at boot
 
 On a system with `systemd` (like Raspberry Pi OS or other Debian variants),
-`thingify-net` and `mavproxy` can be configured to start automatically at
-system boot, and also restart if they crash.
+`thingify-net` and `mavp2p` can be configured to start automatically at system
+boot, and also restart if they crash.
 
-### MAVProxy
+Note that previously `mavproxy` was used, however `mavp2p` is now preferred as
+it consumes significantly less CPU.
 
-To start `mavproxy` at boot, create a "unit file" named `mavproxy.service`
-(this assumes it is installed in `/home/pi/.local/bin` and the `pi` user
+### mavp2p
+
+To start `mavp2p` at boot, create a "unit file" named `mavp2p.service`
+(this assumes it is installed in `/usr/local/bin` and the `pi` user
 exists):
 
 ```
 [Unit]
-Description=MavProxy service
+Description=mavp2p service
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/env /home/pi/.local/bin/mavproxy.py --master=/dev/ttyACM0 --out 10.0.1.2 --daemon --state-basedir="/home/pi" --cmd="set heartbeat 0;"
+ExecStart=/usr/local/bin/mavp2p serial:/dev/ttyACM0:57600 udps:0.0.0.0:14550 --hb-disable
 Restart=always
 RestartSec=3
 User=pi
@@ -103,21 +106,21 @@ WantedBy=multi-user.target
 Copy this file to `/etc/systemd/system` and set its permissions:
 
 ```
-sudo cp mavproxy.service /etc/systemd/system/mavproxy.service
-sudo chmod 644 /etc/systemd/system/mavproxy.service
+sudo cp mavp2p.service /etc/systemd/system/mavp2p.service
+sudo chmod 644 /etc/systemd/system/mavp2p.service
 ```
 
 Start the service and enable it to start at boot:
 
 ```
-sudo systemctl start mavproxy
-sudo systemctl enable mavproxy
+sudo systemctl start mavp2p
+sudo systemctl enable mavp2p
 ```
 
 To view logs, run:
 
 ```
-journalctl -u mavproxy.service -f
+journalctl -u mavp2p.service -f
 ```
 
 ### thingify-net
