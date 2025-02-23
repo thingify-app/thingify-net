@@ -145,6 +145,7 @@ Create a "unit file" named `thingify.service`:
 Description=Thingify
 
 [Service]
+EnvironmentFile=/etc/default/thingify-net-env
 ExecStart=/usr/local/bin/thingify-net connect --withMedia
 User=pi
 AmbientCapabilities=CAP_NET_ADMIN
@@ -165,6 +166,20 @@ As above, copy this file to `/etc/systemd/system` and set its permissions:
 ```
 sudo cp thingify.service /etc/systemd/system/thingify.service
 sudo chmod 644 /etc/systemd/system/thingify.service
+```
+
+If using an RTSP video source, create an environment variable file configuring
+this at `/etc/default/thingify-net-env`:
+
+```
+USE_RTSP="true"
+RTSP_URL="rtsp://<username>:<password>@<ip_addr>:<port>/<stream>"
+```
+
+Otherwise, if using a camera, disable RTSP:
+
+```
+USE_RTSP="false"
 ```
 
 Start the service and enable it to start at boot:

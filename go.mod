@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/pion/mediadevices v0.6.1
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
-	github.com/thingify-app/thing-rtc-go v0.0.0-20241126093153-1ac64d464010
+	github.com/thingify-app/thing-rtc-go v0.0.0-20250223093058-5c5a48764c08
 	github.com/urfave/cli/v2 v2.27.1
 	github.com/vishvananda/netlink v1.1.0
 )
@@ -14,6 +14,7 @@ require (
 	github.com/blackjack/webcam v0.5.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/deepch/vdk v0.0.0-20211113104208-022deeb641f7 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect
 	github.com/pion/datachannel v1.5.5 // indirect

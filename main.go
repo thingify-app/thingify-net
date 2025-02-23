@@ -112,20 +112,31 @@ func listenOnTun(peer thingrtc.Peer) error {
 	}
 }
 
-func createPeer(withMedia bool) (thingrtc.Peer, error) {
+func createPeer(tokenGenerator pairing.TokenGenerator, withMedia bool, useRtsp bool, rtspUrl string) (peer thingrtc.Peer, err error) {
 	if withMedia {
-		videoSource := thingrtc.CreateVideoMediaSource(640, 480)
-		codec, err := makeCodec()
-		if err != nil {
-			return nil, err
+		var videoSource *thingrtc.MediaSource
+		if useRtsp {
+			videoSource, err = thingrtc.CreateRtspMediaSource(rtspUrl)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			codec, err := makeCodec()
+			if err != nil {
+				return nil, err
+			}
+			videoSource, err = thingrtc.CreateVideoMediaSource(codec, 640, 480)
+			if err != nil {
+				return nil, err
+			}
 		}
-		return thingrtc.NewPeerWithMedia(SIGNALLING_SERVER_URL, codec, videoSource), nil
+		return thingrtc.NewPeerWithMedia(SIGNALLING_SERVER_URL, tokenGenerator, videoSource), nil
 	} else {
-		return thingrtc.NewPeer(SIGNALLING_SERVER_URL), nil
+		return thingrtc.NewPeer(SIGNALLING_SERVER_URL, tokenGenerator), nil
 	}
 }
 
-func connect(withMedia bool) error {
+func connect(withMedia bool, withRtsp bool, rtspUrl string) error {
 	pairing := createPairing()
 	pairingIds := pairing.GetAllPairingIds()
 	if len(pairingIds) == 0 {
@@ -133,7 +144,12 @@ func connect(withMedia bool) error {
 	}
 	pairingId := pairingIds[0]
 
-	peer, err := createPeer(withMedia)
+	tokenGenerator, err := pairing.GetTokenGenerator(pairingId)
+	if err != nil {
+		return err
+	}
+
+	peer, err := createPeer(tokenGenerator, withMedia, withRtsp, rtspUrl)
 	if err != nil {
 		return err
 	}
@@ -149,12 +165,7 @@ func connect(withMedia bool) error {
 		}
 	})
 
-	tokenGenerator, err := pairing.GetTokenGenerator(pairingId)
-	if err != nil {
-		return err
-	}
-
-	peer.Connect(tokenGenerator)
+	peer.Connect()
 
 	err = listenOnTun(peer)
 	if err != nil {
@@ -164,6 +175,8 @@ func connect(withMedia bool) error {
 }
 
 func main() {
+	withRtsp := (os.Getenv("USE_RTSP") == "true")
+	rtspUrl := os.Getenv("RTSP_URL")
 	app := cli.App{
 		Name:  "thingify-net",
 		Usage: "Create virtual networks with web browsers over WebRTC.",
@@ -193,7 +206,7 @@ func main() {
 					},
 				},
 				Action: func(ctx *cli.Context) error {
-					return connect(ctx.Bool("withMedia"))
+					return connect(ctx.Bool("withMedia"), withRtsp, rtspUrl)
 				},
 			},
 		},
