@@ -4,8 +4,8 @@
 package main
 
 import (
-	"github.com/thingify-app/thing-rtc-go/codec"
-	"github.com/thingify-app/thing-rtc-go/codec/mmal"
+	"github.com/thingify-app/thing-rtc/peer-go/codec"
+	"github.com/thingify-app/thing-rtc/peer-go/codec/mmal"
 )
 
 func makeCodec() (*codec.Codec, error) {

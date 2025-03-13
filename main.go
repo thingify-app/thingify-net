@@ -7,8 +7,8 @@ import (
 	"path"
 
 	"github.com/songgao/water"
-	thingrtc "github.com/thingify-app/thing-rtc-go"
-	"github.com/thingify-app/thing-rtc-go/pairing"
+	thingrtc "github.com/thingify-app/thing-rtc/peer-go"
+	"github.com/thingify-app/thing-rtc/peer-go/pairing"
 	"github.com/urfave/cli/v2"
 	"github.com/vishvananda/netlink"
 )

@@ -3,4 +3,4 @@
 
 package main
 
-import _ "github.com/thingify-app/thing-rtc-go/driver/camera"
+import _ "github.com/thingify-app/thing-rtc/peer-go/driver/camera"
