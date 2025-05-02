@@ -15,7 +15,7 @@ import (
 
 const PAIRING_SERVER_URL = "https://thingify.deno.dev/pairing"
 const SIGNALLING_SERVER_URL = "wss://thingify.deno.dev/signalling"
-const DEFAULT_ADDRESS_RANGE = "10.0.1.0/24"
+const DEFAULT_ADDRESS_RANGE = "10.0.1.1/24"
 
 // Not sure why MTU needs to be this, but higher values (e.g. 1200) result in
 // data channel messages not being sent - perhaps an SCTP limitation?
@@ -75,6 +75,25 @@ func createPairing() pairing.Pairing {
 	}
 
 	return pairing.NewPairing(PAIRING_SERVER_URL, path.Join(configDir, "pairing.json"))
+}
+
+func initiatePairing() error {
+	pairing := createPairing()
+	pairing.ClearAllPairings()
+
+	pendingResult, err := pairing.InitiatePairing()
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Shortcode: %v\n", pendingResult.Shortcode)
+
+	result, err := pendingResult.PairingResult()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Pairing succeeded, pairingId: %v\n", result.PairingId)
+	return nil
 }
 
 func respondToPairing(shortcode string) error {
@@ -184,15 +203,28 @@ func main() {
 			{
 				Name:  "pair",
 				Usage: "Manage pairing with a peer",
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:     "shortcode",
-						Usage:    "shortcode provided by initiating peer",
-						Required: true,
+				Subcommands: []*cli.Command{
+					{
+						Name:  "initiate",
+						Usage: "Initiate a pairing request",
+						Action: func(ctx *cli.Context) error {
+							return initiatePairing()
+						},
 					},
-				},
-				Action: func(ctx *cli.Context) error {
-					return respondToPairing(ctx.String("shortcode"))
+					{
+						Name:  "respond",
+						Usage: "Respond to a pairing request with the provided shortcode",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "shortcode",
+								Usage:    "shortcode provided by initiating peer",
+								Required: true,
+							},
+						},
+						Action: func(ctx *cli.Context) error {
+							return respondToPairing(ctx.String("shortcode"))
+						},
+					},
 				},
 			},
 			{

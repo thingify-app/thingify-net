@@ -201,6 +201,8 @@ github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsT
 github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
 github.com/thingify-app/thing-rtc/peer-go v0.0.0-20250313111745-1b602c870588 h1:OHbTrPHDnGS7h6zHQ+AM8tGZY1j5z2ro93WUQ6LK3pc=
 github.com/thingify-app/thing-rtc/peer-go v0.0.0-20250313111745-1b602c870588/go.mod h1:tlOMp/Xf8g340A3PMpUoHxmH0cWuA2LBe0HTUaF0dxQ=
+github.com/thingify-app/thing-rtc/peer-go v0.0.0-20250502020726-d35579db6ff6 h1:f4X3ccUdum3yMTT4uH0fsKZXEGmo7k/9wsAbhDn/XPo=
+github.com/thingify-app/thing-rtc/peer-go v0.0.0-20250502020726-d35579db6ff6/go.mod h1:tlOMp/Xf8g340A3PMpUoHxmH0cWuA2LBe0HTUaF0dxQ=
 github.com/urfave/cli/v2 v2.27.1 h1:8xSQ6szndafKVRmfyeUMxkNUJQMjL1F2zmsZ+qHpfho=
 github.com/urfave/cli/v2 v2.27.1/go.mod h1:8qnjx1vcq5s2/wpsqoZFndg2CE5tNFyrTvS6SinrnYQ=
 github.com/vishvananda/netlink v1.1.0 h1:1iyaYNBLmP6L0220aDnYQpo1QEV4t4hJ+xEEhhJH8j0=
