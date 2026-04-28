@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/pion/mediadevices v0.6.1
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
-	github.com/thingify-app/thing-rtc/peer-go v0.0.0-20250502020726-d35579db6ff6
+	github.com/thingify-app/thing-rtc/peer-go v0.0.0
 	github.com/urfave/cli/v2 v2.27.1
 	github.com/vishvananda/netlink v1.1.0
 )
@@ -44,3 +44,5 @@ require (
 	golang.org/x/sys v0.18.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/thingify-app/thing-rtc/peer-go => ../thing-rtc/peer-go

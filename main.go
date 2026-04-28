@@ -4,16 +4,14 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 
 	"github.com/songgao/water"
 	thingrtc "github.com/thingify-app/thing-rtc/peer-go"
-	"github.com/thingify-app/thing-rtc/peer-go/pairing"
+	peerconfig "github.com/thingify-app/thing-rtc/peer-go/peer-config"
 	"github.com/urfave/cli/v2"
 	"github.com/vishvananda/netlink"
 )
 
-const PAIRING_SERVER_URL = "https://thingify.deno.dev/pairing"
 const SIGNALLING_SERVER_URL = "wss://thingify.deno.dev/signalling"
 const DEFAULT_ADDRESS_RANGE = "10.0.1.1/24"
 
@@ -61,55 +59,6 @@ func setupTunInterface(name string) (io.ReadWriteCloser, error) {
 	return tun, nil
 }
 
-func createPairing() pairing.Pairing {
-	userConfigDir, err := os.UserConfigDir()
-	if err != nil {
-		panic(err)
-	}
-
-	// Create our config dir if it doesn't exist.
-	configDir := path.Join(userConfigDir, "thingrtc")
-	err = os.MkdirAll(configDir, os.ModePerm)
-	if err != nil {
-		panic(err)
-	}
-
-	return pairing.NewPairing(PAIRING_SERVER_URL, path.Join(configDir, "pairing.json"))
-}
-
-func initiatePairing() error {
-	pairing := createPairing()
-	pairing.ClearAllPairings()
-
-	pendingResult, err := pairing.InitiatePairing()
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("Shortcode: %v\n", pendingResult.Shortcode)
-
-	result, err := pendingResult.PairingResult()
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Pairing succeeded, pairingId: %v\n", result.PairingId)
-	return nil
-}
-
-func respondToPairing(shortcode string) error {
-	pairing := createPairing()
-	pairing.ClearAllPairings()
-
-	fmt.Printf("Responding to pairing...\n")
-	result, err := pairing.RespondToPairing(shortcode)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("Pairing succeeded, pairingId: %v\n", result.PairingId)
-	return nil
-}
-
 func listenOnTun(peer thingrtc.Peer) error {
 	tun, err := setupTunInterface("thingify0")
 	if err != nil {
@@ -131,7 +80,13 @@ func listenOnTun(peer thingrtc.Peer) error {
 	}
 }
 
-func createPeer(tokenGenerator pairing.TokenGenerator, withMedia bool, useRtsp bool, rtspUrl string) (peer thingrtc.Peer, err error) {
+func createPeer(sharedSecretBase64 string, withMedia bool, useRtsp bool, rtspUrl string) (peer thingrtc.Peer, err error) {
+	peerConfig, err := peerconfig.CreateInitiatorConfigWithSecret(sharedSecretBase64)
+	if err != nil {
+		return nil, err
+	}
+	serverAuth := thingrtc.CreateInsecureServerAuth(peerConfig.PairingId, peerConfig.Role)
+
 	if withMedia {
 		var videoSource *thingrtc.MediaSource
 		if useRtsp {
@@ -149,26 +104,14 @@ func createPeer(tokenGenerator pairing.TokenGenerator, withMedia bool, useRtsp b
 				return nil, err
 			}
 		}
-		return thingrtc.NewPeerWithMedia(SIGNALLING_SERVER_URL, tokenGenerator, videoSource), nil
+		return thingrtc.NewPeerWithMedia(SIGNALLING_SERVER_URL, serverAuth, peerConfig, videoSource), nil
 	} else {
-		return thingrtc.NewPeer(SIGNALLING_SERVER_URL, tokenGenerator), nil
+		return thingrtc.NewPeer(SIGNALLING_SERVER_URL, serverAuth, peerConfig), nil
 	}
 }
 
-func connect(withMedia bool, withRtsp bool, rtspUrl string) error {
-	pairing := createPairing()
-	pairingIds := pairing.GetAllPairingIds()
-	if len(pairingIds) == 0 {
-		return fmt.Errorf("pairing not setup, re-run pairing")
-	}
-	pairingId := pairingIds[0]
-
-	tokenGenerator, err := pairing.GetTokenGenerator(pairingId)
-	if err != nil {
-		return err
-	}
-
-	peer, err := createPeer(tokenGenerator, withMedia, withRtsp, rtspUrl)
+func connect(sharedSecretBase64 string, withMedia bool, withRtsp bool, rtspUrl string) error {
+	peer, err := createPeer(sharedSecretBase64, withMedia, withRtsp, rtspUrl)
 	if err != nil {
 		return err
 	}
@@ -201,36 +144,14 @@ func main() {
 		Usage: "Create virtual networks with web browsers over WebRTC.",
 		Commands: []*cli.Command{
 			{
-				Name:  "pair",
-				Usage: "Manage pairing with a peer",
-				Subcommands: []*cli.Command{
-					{
-						Name:  "initiate",
-						Usage: "Initiate a pairing request",
-						Action: func(ctx *cli.Context) error {
-							return initiatePairing()
-						},
-					},
-					{
-						Name:  "respond",
-						Usage: "Respond to a pairing request with the provided shortcode",
-						Flags: []cli.Flag{
-							&cli.StringFlag{
-								Name:     "shortcode",
-								Usage:    "shortcode provided by initiating peer",
-								Required: true,
-							},
-						},
-						Action: func(ctx *cli.Context) error {
-							return respondToPairing(ctx.String("shortcode"))
-						},
-					},
-				},
-			},
-			{
 				Name:  "connect",
 				Usage: "Create an network interface to a peer",
 				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:     "secret",
+						Usage:    "shared secret of the peer to connect to",
+						Required: true,
+					},
 					&cli.BoolFlag{
 						Name:  "withMedia",
 						Usage: "Set to enable media (camera) streaming",
@@ -238,7 +159,7 @@ func main() {
 					},
 				},
 				Action: func(ctx *cli.Context) error {
-					return connect(ctx.Bool("withMedia"), withRtsp, rtspUrl)
+					return connect(ctx.String("secret"), ctx.Bool("withMedia"), withRtsp, rtspUrl)
 				},
 			},
 		},
