@@ -3,7 +3,10 @@ package main
 import (
 	"fmt"
 	"io"
+	"net"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/songgao/water"
 	thingrtc "github.com/thingify-app/thing-rtc/peer-go"
@@ -14,6 +17,7 @@ import (
 
 const SIGNALLING_SERVER_URL = "wss://thingify.deno.dev/signalling"
 const DEFAULT_ADDRESS_RANGE = "10.0.1.1/24"
+const LOCAL_HOST_IP = "10.0.1.2"
 
 // Not sure why MTU needs to be this, but higher values (e.g. 1200) result in
 // data channel messages not being sent - perhaps an SCTP limitation?
@@ -65,19 +69,91 @@ func listenOnTun(peer thingrtc.Peer) error {
 		return err
 	}
 
-	peer.OnBinaryMessage(func(message []byte) {
-		tun.Write(message)
+	stack, err := createStack(LOCAL_HOST_IP, tun)
+	if err != nil {
+		return err
+	}
+
+	peer.OnDataChannel(func(dataChannel thingrtc.DataChannel) {
+		err := handleNewDataChannel(stack, dataChannel)
+		if err != nil {
+			fmt.Printf("Failed to handle new data channel '%v': %v\n", dataChannel.GetLabel(), err)
+		}
 	})
 
-	buffer := make([]byte, MTU_BYTES)
-	for {
-		n, err := tun.Read(buffer)
-		if err != nil {
-			return err
-		}
+	// Block forever waiting for data channels:
+	select {}
+}
 
-		peer.SendBinaryMessage(buffer[:n])
+func handleNewDataChannel(stack *NetworkStack, dataChannel thingrtc.DataChannel) error {
+	label := dataChannel.GetLabel()
+	protocol, targetIp, targetPort, err := parseLabel(label)
+	if err != nil {
+		return err
 	}
+
+	dcStream, err := dataChannel.AsStream()
+	if err != nil {
+		return err
+	}
+
+	var conn net.Conn
+
+	if protocol == "tcp" {
+		conn, err = stack.DialTCP(targetIp, targetPort)
+	} else if protocol == "udp" {
+		conn, err = stack.DialUDP(targetIp, targetPort)
+	}
+
+	if err != nil {
+		dcStream.Close()
+		return err
+	}
+
+	bridgeStreams(dcStream, conn)
+	return nil
+}
+
+func parseLabel(label string) (string, string, uint16, error) {
+	parts := strings.Split(label, ":")
+	if len(parts) != 3 {
+		return "", "", 0, fmt.Errorf("Expected label to be 3 colon-separated parts, was: %v", parts)
+	}
+
+	protocol, targetIp, portStr := parts[0], parts[1], parts[2]
+
+	if protocol != "tcp" && protocol != "udp" {
+		return "", "", 0, fmt.Errorf("Invalid protocol (expected tcp or udp): %v", protocol)
+	}
+
+	targetPort, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("Invalid port: %v", portStr)
+	}
+
+	return protocol, targetIp, uint16(targetPort), nil
+}
+
+func bridgeStreams(webrtcConn, netConn io.ReadWriteCloser) {
+	// WebRTC -> Network stack
+	go func() {
+		defer netConn.Close()
+		defer webrtcConn.Close()
+		_, err := io.Copy(netConn, webrtcConn)
+		if err != nil {
+			fmt.Printf("Connection failed: %v\n", err)
+		}
+	}()
+
+	// Network stack -> WebRTC
+	go func() {
+		defer netConn.Close()
+		defer webrtcConn.Close()
+		_, err := io.Copy(webrtcConn, netConn)
+		if err != nil {
+			fmt.Printf("Connection failed: %v\n", err)
+		}
+	}()
 }
 
 func createPeer(sharedSecretBase64 string, withMedia bool, useRtsp bool, rtspUrl string) (peer thingrtc.Peer, err error) {
