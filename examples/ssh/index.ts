@@ -1,4 +1,4 @@
-import { createResponderConfig, InsecureServerAuth, ThingPeer } from 'thingrtc-peer';
+import { createResponderConfig, InsecureServerAuth, Listeners, ThingPeer } from 'thingrtc-peer';
 import { Terminal } from 'xterm';
 
 // Declare functions/variables accessible to WASM.
@@ -14,7 +14,7 @@ declare global {
 
 const SIGNALLING_SERVER_URL = 'wss://thingify.deno.dev/signalling';
 const REMOTE_HOST = '10.0.1.1';
-const MTU_BYTES = 1024;
+const BUFFER_SIZE_BYTES = 16384;
 
 export async function runWasm() {
     const go = new Go();
@@ -43,43 +43,33 @@ globalThis.writeToConsole = (str: string) => {
 
 // Create a global buffer for WASM to write to, before calling sendToPeer
 // with the actual number of bytes to send from the buffer.
-const messageBuffer = new Uint8Array(MTU_BYTES);
+const messageBuffer = new Uint8Array(BUFFER_SIZE_BYTES);
 globalThis.messageBuffer = messageBuffer;
 
 // Create a global buffer for WASM to read from, before calling its
 // messageListener function to read the buffer.
-const outgoingMessageBuffer = new Uint8Array(MTU_BYTES);
+const outgoingMessageBuffer = new Uint8Array(BUFFER_SIZE_BYTES);
 globalThis.outgoingMessageBuffer = outgoingMessageBuffer;
+
+let peer: ThingPeer;
 
 async function connect() {
     const peerConfig = await createResponderConfig(sharedSecretField.value);
     const serverAuth = new InsecureServerAuth(peerConfig.pairingId, peerConfig.role);
-    const peer = new ThingPeer(SIGNALLING_SERVER_URL, serverAuth, peerConfig);
 
-    globalThis.sendToPeer = (len: number) => {
-        const buffer = messageBuffer.subarray(0, len).buffer;
-        console.log(`Sending message ${buffer}`);
-        peer.sendMessage(buffer);
-    }
-
-    peer.on('connectionStateChanged', state => {
-        console.log(`Peer connection state: ${state}`);
-    });
-
-    peer.on('binaryMessage', message => {
-        console.log('Binary message received (JS)');
-        outgoingMessageBuffer.set(new Uint8Array(message), 0);
-        if (globalThis.messageListener) {
-            globalThis.messageListener(message.byteLength);
+    const listeners: Listeners = {
+        connectionStateListener: async state => {
+            console.log(`Peer connection state: ${state}`);
         }
-    });
+    };
 
+    peer = new ThingPeer(SIGNALLING_SERVER_URL, serverAuth, peerConfig, listeners);
     peer.connect([]);
 }
 
 async function startInit() {
     console.log('Initing...');
-    globalThis.init(REMOTE_HOST, usernameField.value, passwordField.value);
+    globalThis.init(`${REMOTE_HOST}:22`, usernameField.value, passwordField.value);
 }
 
 async function main() {
@@ -89,6 +79,21 @@ async function main() {
     });
 
     sshConnectButton.addEventListener('click', async () => {
+        const dc = await peer.createDataChannel(`tcp:${REMOTE_HOST}:22`, true);
+
+        globalThis.sendToPeer = (len: number) => {
+            const buffer = messageBuffer.slice(0, len).buffer;
+            console.log(`Sending message (len ${len}):`);
+            console.log(buffer);
+            dc.sendMessage(buffer);
+        };
+        dc.on('binaryMessage', message => {
+            console.log('Binary message received (JS)');
+            outgoingMessageBuffer.set(new Uint8Array(message), 0);
+            if (globalThis.messageListener) {
+                globalThis.messageListener(message.byteLength);
+            }
+        });
         await startInit();
     });
 

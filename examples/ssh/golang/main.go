@@ -3,111 +3,20 @@
 package main
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"io"
-	"math/rand"
 	"net"
 	"syscall/js"
 	"time"
 
 	"golang.org/x/crypto/ssh"
-	"gvisor.dev/gvisor/pkg/buffer"
-	"gvisor.dev/gvisor/pkg/tcpip"
-	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
-	"gvisor.dev/gvisor/pkg/tcpip/header"
-	"gvisor.dev/gvisor/pkg/tcpip/link/channel"
-	"gvisor.dev/gvisor/pkg/tcpip/link/sniffer"
-	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
-	"gvisor.dev/gvisor/pkg/tcpip/stack"
-	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 )
 
-const LOCAL_HOST_IP = "10.0.1.2"
-const MTU_BYTES = 1024
+// Port is made-up here, doesn't seem to matter to SSH but we should investigate.
+const LOCAL_HOST_IP = "10.0.1.2:3000"
 
-func createStack(localAddrName string) (*stack.Stack, error) {
-	rand.Seed(time.Now().UnixNano())
-
-	localAddr := tcpip.AddrFromSlice(net.ParseIP(localAddrName).To4())
-
-	// Create the stack with ipv4 and tcp protocols, then add a tun-based
-	// NIC and ipv4 address.
-	s := stack.New(stack.Options{
-		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol},
-		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol},
-	})
-
-	linkEP := channel.New(0, MTU_BYTES, "")
-	if err := s.CreateNIC(1, sniffer.New(linkEP)); err != nil {
-		return nil, fmt.Errorf("error creating NIC: %v", err)
-	}
-
-	incomingBuf := make([]byte, MTU_BYTES)
-	incomingMessageBuffer := js.Global().Get("outgoingMessageBuffer")
-	messageListener := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-		go func() {
-			bufLen := args[0].Int()
-			js.CopyBytesToGo(incomingBuf, incomingMessageBuffer)
-			fmt.Printf("binary message received (len %v): %v\n", bufLen, hex.EncodeToString(incomingBuf[:bufLen]))
-			linkEP.InjectInbound(ipv4.ProtocolNumber, stack.NewPacketBuffer(stack.PacketBufferOptions{
-				Payload: buffer.MakeWithData(incomingBuf[:bufLen]),
-			}))
-		}()
-		return nil
-	})
-
-	js.Global().Set("messageListener", messageListener)
-	messageBuffer := js.Global().Get("messageBuffer")
-
-	go func() {
-		for {
-			packetBuffer := linkEP.ReadContext(context.Background())
-			buffer := packetBuffer.ToBuffer()
-			flatBuffer := buffer.Flatten()
-			bufLen := len(flatBuffer)
-			fmt.Printf("Sending to JS (len %v): %v\n", bufLen, hex.EncodeToString(flatBuffer))
-			js.CopyBytesToJS(messageBuffer, flatBuffer)
-			js.Global().Call("sendToPeer", bufLen)
-		}
-	}()
-
-	protocolAddr := tcpip.ProtocolAddress{
-		Protocol:          ipv4.ProtocolNumber,
-		AddressWithPrefix: localAddr.WithPrefix(),
-	}
-	if err := s.AddProtocolAddress(1, protocolAddr, stack.AddressProperties{}); err != nil {
-		return nil, fmt.Errorf("AddProtocolAddress(%d, %+v, {}): %s", 1, protocolAddr, err)
-	}
-
-	// Add default route.
-	s.SetRouteTable([]tcpip.Route{
-		{
-			Destination: header.IPv4EmptySubnet,
-			NIC:         1,
-		},
-	})
-
-	return s, nil
-}
-
-func dial(stack *stack.Stack, remoteAddrName string, remotePort uint16) (net.Conn, error) {
-	remote := tcpip.FullAddress{
-		NIC:  1,
-		Addr: tcpip.AddrFromSlice(net.ParseIP(remoteAddrName).To4()),
-		Port: remotePort,
-	}
-
-	return gonet.DialTCP(stack, remote, ipv4.ProtocolNumber)
-}
-
-func createSshSession(stack *stack.Stack, host string, username string, password string) error {
-	conn, err := dial(stack, host, 22)
-	if err != nil {
-		return err
-	}
-
+func createSshSession(conn net.Conn, host string, username string, password string) error {
 	auth := []ssh.AuthMethod{ssh.Password(password)}
 	clientConfig := &ssh.ClientConfig{
 		User:            username,
@@ -215,17 +124,120 @@ func writeToConsole(str string) {
 	js.Global().Call("writeToConsole", str)
 }
 
-func main() {
-	stack, err := createStack(LOCAL_HOST_IP)
-	if err != nil {
-		panic(err)
+type dcRwc struct {
+	outgoingMessageBuffer js.Value
+	readChan              chan byte
+}
+
+func (d *dcRwc) Read(p []byte) (n int, err error) {
+	fmt.Printf("Reading into buffer of size %v...\n", len(p))
+
+	// Reading only one byte at a time - we should find a more efficient way to
+	// do this.
+	buf := <-d.readChan
+	p[0] = buf
+	return 1, nil
+}
+
+func (d *dcRwc) Write(p []byte) (n int, err error) {
+	n = len(p)
+	fmt.Printf("Sending to JS (len %v): %v\n", n, hex.EncodeToString(p))
+	js.CopyBytesToJS(d.outgoingMessageBuffer, p)
+	js.Global().Call("sendToPeer", n)
+	return n, nil
+}
+
+func (dcRwc) Close() error {
+	return nil
+}
+
+func dataChannelToStream(incomingMessageBuffer, outgoingMessageBuffer js.Value) io.ReadWriteCloser {
+	readChan := make(chan byte)
+	rwc := &dcRwc{
+		outgoingMessageBuffer: outgoingMessageBuffer,
+		readChan:              readChan,
 	}
 
+	messageListener := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		go func() {
+			bufLen := args[0].Int()
+			incomingBuf := make([]byte, bufLen)
+			js.CopyBytesToGo(incomingBuf, incomingMessageBuffer)
+			fmt.Printf("binary message received (len %v): %v\n", bufLen, hex.EncodeToString(incomingBuf[:bufLen]))
+			for _, b := range incomingBuf {
+				readChan <- b
+			}
+		}()
+		return nil
+	})
+
+	js.Global().Set("messageListener", messageListener)
+
+	return rwc
+}
+
+type rwcConn struct {
+	io.ReadWriteCloser
+	localAddr  net.Addr
+	remoteAddr net.Addr
+}
+
+func NewConn(rwc io.ReadWriteCloser, local, remote net.Addr) net.Conn {
+	return &rwcConn{
+		ReadWriteCloser: rwc,
+		localAddr:       local,
+		remoteAddr:      remote,
+	}
+}
+
+// LocalAddr returns the local network address.
+func (c *rwcConn) LocalAddr() net.Addr {
+	return c.localAddr
+}
+
+// RemoteAddr returns the remote network address.
+func (c *rwcConn) RemoteAddr() net.Addr {
+	return c.remoteAddr
+}
+
+// SetDeadline implements the net.Conn SetDeadline method.
+// Standard io.ReadWriteCloser streams do not support deadlines, so we return nil.
+func (c *rwcConn) SetDeadline(t time.Time) error {
+	return nil
+}
+
+// SetReadDeadline implements the net.Conn SetReadDeadline method.
+func (c *rwcConn) SetReadDeadline(t time.Time) error {
+	return nil
+}
+
+// SetWriteDeadline implements the net.Conn SetWriteDeadline method.
+func (c *rwcConn) SetWriteDeadline(t time.Time) error {
+	return nil
+}
+
+func main() {
 	init := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		host, username, password := args[0].String(), args[1].String(), args[2].String()
 		fmt.Printf("Connecting to host: %v with username: %v\n", host, username)
+
+		localAddr, err := net.ResolveTCPAddr("tcp", LOCAL_HOST_IP)
+		if err != nil {
+			panic(err)
+		}
+
+		remoteAddr, err := net.ResolveTCPAddr("tcp", host)
+		if err != nil {
+			panic(err)
+		}
+
+		incomingMessageBuffer := js.Global().Get("outgoingMessageBuffer")
+		outgoingMessageBuffer := js.Global().Get("messageBuffer")
+		rwc := dataChannelToStream(incomingMessageBuffer, outgoingMessageBuffer)
+		conn := NewConn(rwc, localAddr, remoteAddr)
+
 		go func() {
-			err = createSshSession(stack, host, username, password)
+			err := createSshSession(conn, host, username, password)
 			if err != nil {
 				panic(err)
 			}

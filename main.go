@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"strconv"
@@ -17,11 +18,9 @@ import (
 
 const SIGNALLING_SERVER_URL = "wss://thingify.deno.dev/signalling"
 const DEFAULT_ADDRESS_RANGE = "10.0.1.1/24"
-const LOCAL_HOST_IP = "10.0.1.2"
+const REMOTE_HOST_IP = "10.0.1.2"
 
-// Not sure why MTU needs to be this, but higher values (e.g. 1200) result in
-// data channel messages not being sent - perhaps an SCTP limitation?
-const MTU_BYTES = 1024
+const MTU_BYTES = 16384
 
 func setupTunInterface(name string) (io.ReadWriteCloser, error) {
 	tun, err := water.New(water.Config{
@@ -69,7 +68,7 @@ func listenOnTun(peer thingrtc.Peer) error {
 		return err
 	}
 
-	stack, err := createStack(LOCAL_HOST_IP, tun)
+	stack, err := createStack(REMOTE_HOST_IP, tun)
 	if err != nil {
 		return err
 	}
@@ -110,7 +109,9 @@ func handleNewDataChannel(stack *NetworkStack, dataChannel thingrtc.DataChannel)
 		return err
 	}
 
-	bridgeStreams(dcStream, conn)
+	interceptor := &Interceptor{Stream: dcStream}
+
+	bridgeStreams(interceptor, conn)
 	return nil
 }
 
@@ -156,6 +157,32 @@ func bridgeStreams(webrtcConn, netConn io.ReadWriteCloser) {
 	}()
 }
 
+// Interceptor wraps an existing io.ReadWriteCloser
+type Interceptor struct {
+	Stream io.ReadWriteCloser
+}
+
+// Read intercepts incoming data
+func (i *Interceptor) Read(p []byte) (n int, err error) {
+	n, err = i.Stream.Read(p)
+	if n > 0 {
+		log.Printf("Intercepted Read (len %v): %x\n", n, p[:n]) // Or string(p[:n]) for text
+	}
+	return n, err
+}
+
+// Write intercepts outgoing data
+func (i *Interceptor) Write(p []byte) (n int, err error) {
+	log.Printf("Intercepted Write (len %v): %x\n", len(p), p)
+	return i.Stream.Write(p)
+}
+
+// Close delegates the close operation
+func (i *Interceptor) Close() error {
+	log.Println("Closing stream...")
+	return i.Stream.Close()
+}
+
 func createPeer(sharedSecretBase64 string, withMedia bool, useRtsp bool, rtspUrl string) (peer thingrtc.Peer, err error) {
 	peerConfig, err := peerconfig.CreateInitiatorConfigWithSecret(sharedSecretBase64)
 	if err != nil {
@@ -180,9 +207,9 @@ func createPeer(sharedSecretBase64 string, withMedia bool, useRtsp bool, rtspUrl
 				return nil, err
 			}
 		}
-		return thingrtc.NewPeerWithMedia(SIGNALLING_SERVER_URL, serverAuth, peerConfig, videoSource), nil
+		return thingrtc.NewPeerWithMedia(SIGNALLING_SERVER_URL, serverAuth, peerConfig, true, videoSource), nil
 	} else {
-		return thingrtc.NewPeer(SIGNALLING_SERVER_URL, serverAuth, peerConfig), nil
+		return thingrtc.NewPeer(SIGNALLING_SERVER_URL, serverAuth, peerConfig, true), nil
 	}
 }
 
