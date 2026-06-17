@@ -8,12 +8,21 @@
         "serve": "parcel serve index.html --port 8080"
     },
     "devDependencies": {
-        "parcel-bundler": "^1.12.5",
+        "parcel": "^2.16.4",
+        "parcel-resolver-ignore": "^2.2.1",
         "typescript": "^5.4.3"
     },
     "dependencies": {
         "@types/golang-wasm-exec": "^1.15.2",
         "thingrtc-peer": "file://../../../thing-rtc/peer-web",
         "xterm": "^5.3.0"
+    },
+    "parcelIgnore": {
+        "development": [
+            "./wasm_exec.js"
+        ],
+        "production": [
+            "./wasm_exec.js"
+        ]
     }
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"syscall/js"
 	"time"
 
@@ -221,15 +222,17 @@ func main() {
 		host, username, password := args[0].String(), args[1].String(), args[2].String()
 		fmt.Printf("Connecting to host: %v with username: %v\n", host, username)
 
-		localAddr, err := net.ResolveTCPAddr("tcp", LOCAL_HOST_IP)
+		localAddrPort, err := netip.ParseAddrPort(LOCAL_HOST_IP)
 		if err != nil {
 			panic(err)
 		}
+		localAddr := net.TCPAddrFromAddrPort(localAddrPort)
 
-		remoteAddr, err := net.ResolveTCPAddr("tcp", host)
+		remoteAddrPort, err := netip.ParseAddrPort(host)
 		if err != nil {
 			panic(err)
 		}
+		remoteAddr := net.TCPAddrFromAddrPort(remoteAddrPort)
 
 		incomingMessageBuffer := js.Global().Get("outgoingMessageBuffer")
 		outgoingMessageBuffer := js.Global().Get("messageBuffer")
