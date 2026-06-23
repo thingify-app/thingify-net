@@ -7,15 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/netip"
 	"syscall/js"
-	"time"
 
 	"golang.org/x/crypto/ssh"
 )
-
-// Port is made-up here, doesn't seem to matter to SSH but we should investigate.
-const LOCAL_HOST_IP = "10.0.1.2:3000"
 
 func createSshSession(conn net.Conn, host string, username string, password string) error {
 	auth := []ssh.AuthMethod{ssh.Password(password)}
@@ -125,39 +120,21 @@ func writeToConsole(str string) {
 	js.Global().Call("writeToConsole", str)
 }
 
-type dcRwc struct {
-	outgoingMessageBuffer js.Value
-	readChan              chan byte
-}
+func dataChannelToConn(incomingMessageBuffer, outgoingMessageBuffer js.Value) net.Conn {
+	dcConn, sshConn := net.Pipe()
 
-func (d *dcRwc) Read(p []byte) (n int, err error) {
-	fmt.Printf("Reading into buffer of size %v...\n", len(p))
-
-	// Reading only one byte at a time - we should find a more efficient way to
-	// do this.
-	buf := <-d.readChan
-	p[0] = buf
-	return 1, nil
-}
-
-func (d *dcRwc) Write(p []byte) (n int, err error) {
-	n = len(p)
-	fmt.Printf("Sending to JS (len %v): %v\n", n, hex.EncodeToString(p))
-	js.CopyBytesToJS(d.outgoingMessageBuffer, p)
-	js.Global().Call("sendToPeer", n)
-	return n, nil
-}
-
-func (dcRwc) Close() error {
-	return nil
-}
-
-func dataChannelToStream(incomingMessageBuffer, outgoingMessageBuffer js.Value) io.ReadWriteCloser {
-	readChan := make(chan byte)
-	rwc := &dcRwc{
-		outgoingMessageBuffer: outgoingMessageBuffer,
-		readChan:              readChan,
-	}
+	go func() {
+		outgoingBuf := make([]byte, 16384)
+		for {
+			n, err := dcConn.Read(outgoingBuf)
+			if err != nil {
+				panic(err)
+			}
+			fmt.Printf("Sending to JS (len %v): %v\n", n, hex.EncodeToString(outgoingBuf[:n]))
+			js.CopyBytesToJS(outgoingMessageBuffer, outgoingBuf[:n])
+			js.Global().Call("sendToPeer", n)
+		}
+	}()
 
 	messageListener := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		go func() {
@@ -165,56 +142,14 @@ func dataChannelToStream(incomingMessageBuffer, outgoingMessageBuffer js.Value) 
 			incomingBuf := make([]byte, bufLen)
 			js.CopyBytesToGo(incomingBuf, incomingMessageBuffer)
 			fmt.Printf("binary message received (len %v): %v\n", bufLen, hex.EncodeToString(incomingBuf[:bufLen]))
-			for _, b := range incomingBuf {
-				readChan <- b
-			}
+			dcConn.Write(incomingBuf)
 		}()
 		return nil
 	})
 
 	js.Global().Set("messageListener", messageListener)
 
-	return rwc
-}
-
-type rwcConn struct {
-	io.ReadWriteCloser
-	localAddr  net.Addr
-	remoteAddr net.Addr
-}
-
-func NewConn(rwc io.ReadWriteCloser, local, remote net.Addr) net.Conn {
-	return &rwcConn{
-		ReadWriteCloser: rwc,
-		localAddr:       local,
-		remoteAddr:      remote,
-	}
-}
-
-// LocalAddr returns the local network address.
-func (c *rwcConn) LocalAddr() net.Addr {
-	return c.localAddr
-}
-
-// RemoteAddr returns the remote network address.
-func (c *rwcConn) RemoteAddr() net.Addr {
-	return c.remoteAddr
-}
-
-// SetDeadline implements the net.Conn SetDeadline method.
-// Standard io.ReadWriteCloser streams do not support deadlines, so we return nil.
-func (c *rwcConn) SetDeadline(t time.Time) error {
-	return nil
-}
-
-// SetReadDeadline implements the net.Conn SetReadDeadline method.
-func (c *rwcConn) SetReadDeadline(t time.Time) error {
-	return nil
-}
-
-// SetWriteDeadline implements the net.Conn SetWriteDeadline method.
-func (c *rwcConn) SetWriteDeadline(t time.Time) error {
-	return nil
+	return sshConn
 }
 
 func main() {
@@ -222,22 +157,9 @@ func main() {
 		host, username, password := args[0].String(), args[1].String(), args[2].String()
 		fmt.Printf("Connecting to host: %v with username: %v\n", host, username)
 
-		localAddrPort, err := netip.ParseAddrPort(LOCAL_HOST_IP)
-		if err != nil {
-			panic(err)
-		}
-		localAddr := net.TCPAddrFromAddrPort(localAddrPort)
-
-		remoteAddrPort, err := netip.ParseAddrPort(host)
-		if err != nil {
-			panic(err)
-		}
-		remoteAddr := net.TCPAddrFromAddrPort(remoteAddrPort)
-
 		incomingMessageBuffer := js.Global().Get("outgoingMessageBuffer")
 		outgoingMessageBuffer := js.Global().Get("messageBuffer")
-		rwc := dataChannelToStream(incomingMessageBuffer, outgoingMessageBuffer)
-		conn := NewConn(rwc, localAddr, remoteAddr)
+		conn := dataChannelToConn(incomingMessageBuffer, outgoingMessageBuffer)
 
 		go func() {
 			err := createSshSession(conn, host, username, password)
