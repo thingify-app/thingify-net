@@ -123,7 +123,7 @@ func dataChannelToConn() net.Conn {
 			n, err := dcConn.Read(outgoingNetworkBuffer)
 			if err != nil {
 				fmt.Printf("Error writing to network: %v\n", err)
-				continue
+				break
 			}
 			fmt.Printf("Sending to JS (len %v): %v\n", n, hex.EncodeToString(outgoingNetworkBuffer[:n]))
 			sendToNetwork(n)
@@ -143,6 +143,11 @@ func wrapFunc(f func()) {
 		f()
 		return nil
 	}).Invoke()
+}
+
+//export getBufferSize
+func getBufferSize() int {
+	return BUFFER_SIZE_BYTES
 }
 
 //export getIncomingNetworkBuffer

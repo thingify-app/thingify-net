@@ -9,7 +9,6 @@ interface SSHConnection {
 
 const SIGNALLING_SERVER_URL = 'wss://thingify.deno.dev/signalling';
 const REMOTE_HOST = '10.0.1.1';
-const BUFFER_SIZE_BYTES = 16384;
 
 function callFuncWithStrings(func: (...args: any[]) => any, memory: ArrayBuffer, mallocFunc: (n: number) => number, ...args: string[]) {
     const funcArgs = [];
@@ -48,10 +47,11 @@ export async function runWasm(sendToTerminal: (buf: Uint8Array) => void, sendToP
 
     // Make these functions to evaluate at access time, as the underlying memory
     // buffer may change.
-    const incomingNetworkBuffer = () => new Uint8Array(memory.buffer, exports.getIncomingNetworkBuffer(), BUFFER_SIZE_BYTES);
-    const outgoingNetworkBuffer = () => new Uint8Array(memory.buffer, exports.getOutgoingNetworkBuffer(), BUFFER_SIZE_BYTES);
-    const incomingTerminalBuffer = () => new Uint8Array(memory.buffer, exports.getIncomingTerminalBuffer(), BUFFER_SIZE_BYTES);
-    const outgoingTerminalBuffer = () => new Uint8Array(memory.buffer, exports.getOutgoingTerminalBuffer(), BUFFER_SIZE_BYTES);
+    const bufferSize = exports.getBufferSize();
+    const incomingNetworkBuffer = () => new Uint8Array(memory.buffer, exports.getIncomingNetworkBuffer(), bufferSize);
+    const outgoingNetworkBuffer = () => new Uint8Array(memory.buffer, exports.getOutgoingNetworkBuffer(), bufferSize);
+    const incomingTerminalBuffer = () => new Uint8Array(memory.buffer, exports.getIncomingTerminalBuffer(), bufferSize);
+    const outgoingTerminalBuffer = () => new Uint8Array(memory.buffer, exports.getOutgoingTerminalBuffer(), bufferSize);
 
     const encoder = new TextEncoder();
     return {
@@ -64,8 +64,15 @@ export async function runWasm(sendToTerminal: (buf: Uint8Array) => void, sendToP
             exports.receiveFromTerminal(buf.length);
         },
         readFromNetwork: (buf: Uint8Array) => {
-            incomingNetworkBuffer().set(buf);
-            exports.receiveFromNetwork(buf.length);
+            console.log(`Reading ${buf.length} bytes from network...`);
+
+            // If the number of received bytes exceeds the incoming buffer size,
+            // send it to the Go side in chunks.
+            for (let i = 0; i < buf.length; i += bufferSize) {
+                const subChunk = buf.slice(i, Math.min(i + bufferSize, buf.length));
+                incomingNetworkBuffer().set(subChunk);
+                exports.receiveFromNetwork(subChunk.length);
+            }
         },
     };
 }
