@@ -12,6 +12,17 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+const BUFFER_SIZE_BYTES = 16384
+
+var incomingNetworkBuffer = make([]byte, BUFFER_SIZE_BYTES)
+var outgoingNetworkBuffer = make([]byte, BUFFER_SIZE_BYTES)
+
+var incomingTerminalBuffer = make([]byte, BUFFER_SIZE_BYTES)
+var outgoingTerminalBuffer = make([]byte, BUFFER_SIZE_BYTES)
+
+var stdInWriter io.Writer
+var networkWriter io.Writer
+
 func createSshSession(conn net.Conn, host string, username string, password string) error {
 	auth := []ssh.AuthMethod{ssh.Password(password)}
 	clientConfig := &ssh.ClientConfig{
@@ -90,88 +101,123 @@ func createSshSession(conn net.Conn, host string, username string, password stri
 
 func forwardOutStream(r io.Reader) {
 	go func() {
-		buf := make([]byte, 2048)
 		for {
-			n, err := r.Read(buf)
+			n, err := r.Read(outgoingTerminalBuffer)
 			if err != nil {
-				panic(err)
+				fmt.Printf("Error writing to terminal: %v\n", err)
 			}
-			writeToConsole(string(buf[:n]))
+			sendToTerminal(n)
 		}
 	}()
 }
 
 func forwardInStream(w io.Writer) {
-	stdInListener := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-		go func() {
-			stdIn := args[0].String()
-			_, err := w.Write([]byte(stdIn))
-			if err != nil {
-				panic(err)
-			}
-		}()
-		return nil
-	})
-
-	js.Global().Set("stdInListener", stdInListener)
+	stdInWriter = w
 }
 
-func writeToConsole(str string) {
-	js.Global().Call("writeToConsole", str)
-}
-
-func dataChannelToConn(incomingMessageBuffer, outgoingMessageBuffer js.Value) net.Conn {
+func dataChannelToConn() net.Conn {
 	dcConn, sshConn := net.Pipe()
 
 	go func() {
-		outgoingBuf := make([]byte, 16384)
 		for {
-			n, err := dcConn.Read(outgoingBuf)
+			n, err := dcConn.Read(outgoingNetworkBuffer)
 			if err != nil {
-				panic(err)
+				fmt.Printf("Error writing to network: %v\n", err)
+				continue
 			}
-			fmt.Printf("Sending to JS (len %v): %v\n", n, hex.EncodeToString(outgoingBuf[:n]))
-			js.CopyBytesToJS(outgoingMessageBuffer, outgoingBuf[:n])
-			js.Global().Call("sendToPeer", n)
+			fmt.Printf("Sending to JS (len %v): %v\n", n, hex.EncodeToString(outgoingNetworkBuffer[:n]))
+			sendToNetwork(n)
 		}
 	}()
 
-	messageListener := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-		go func() {
-			bufLen := args[0].Int()
-			incomingBuf := make([]byte, bufLen)
-			js.CopyBytesToGo(incomingBuf, incomingMessageBuffer)
-			fmt.Printf("binary message received (len %v): %v\n", bufLen, hex.EncodeToString(incomingBuf[:bufLen]))
-			dcConn.Write(incomingBuf)
-		}()
-		return nil
-	})
-
-	js.Global().Set("messageListener", messageListener)
+	// Allow writing to the conn when we receive bytes from the network.
+	networkWriter = dcConn
 
 	return sshConn
 }
 
-func main() {
-	init := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-		host, username, password := args[0].String(), args[1].String(), args[2].String()
+// This is needed to wrap any exported function which calls a goroutine.
+// Not really sure why!
+func wrapFunc(f func()) {
+	js.FuncOf(func(this js.Value, args []js.Value) any {
+		f()
+		return nil
+	}).Invoke()
+}
+
+//export getIncomingNetworkBuffer
+func getIncomingNetworkBuffer() *byte {
+	return &incomingNetworkBuffer[0]
+}
+
+//export getOutgoingNetworkBuffer
+func getOutgoingNetworkBuffer() *byte {
+	return &outgoingNetworkBuffer[0]
+}
+
+//export getIncomingTerminalBuffer
+func getIncomingTerminalBuffer() *byte {
+	return &incomingTerminalBuffer[0]
+}
+
+//export getOutgoingTerminalBuffer
+func getOutgoingTerminalBuffer() *byte {
+	return &outgoingTerminalBuffer[0]
+}
+
+//export sendToNetwork
+func sendToNetwork(n int)
+
+//export receiveFromNetwork
+func receiveFromNetwork(n int) {
+	wrapFunc(func() {
+		go func() {
+			if networkWriter != nil {
+				fmt.Printf("Received %v bytes: %v\n", n, hex.EncodeToString(incomingNetworkBuffer[:n]))
+				_, err := networkWriter.Write(incomingNetworkBuffer[:n])
+				if err != nil {
+					fmt.Printf("Error writing to SSH conn: %v\n", err)
+				}
+			}
+		}()
+	})
+}
+
+//export sendToTerminal
+func sendToTerminal(n int)
+
+//export receiveFromTerminal
+func receiveFromTerminal(n int) {
+	wrapFunc(func() {
+		go func() {
+			if stdInWriter != nil {
+				_, err := stdInWriter.Write(incomingTerminalBuffer[:n])
+				if err != nil {
+					fmt.Printf("Error writing to SSH session: %v\n", err)
+				}
+			}
+		}()
+	})
+}
+
+//export connect
+func connect(host, username, password string) {
+	wrapFunc(func() {
 		fmt.Printf("Connecting to host: %v with username: %v\n", host, username)
 
-		incomingMessageBuffer := js.Global().Get("outgoingMessageBuffer")
-		outgoingMessageBuffer := js.Global().Get("messageBuffer")
-		conn := dataChannelToConn(incomingMessageBuffer, outgoingMessageBuffer)
+		conn := dataChannelToConn()
 
 		go func() {
 			err := createSshSession(conn, host, username, password)
 			if err != nil {
-				panic(err)
+				fmt.Printf("Error creating SSH session: %v\n", err)
+				return
 			}
 		}()
-		return nil
 	})
+}
 
-	js.Global().Set("init", init)
-
+func main() {
 	fmt.Println("WASM loaded.")
 
 	select {}
