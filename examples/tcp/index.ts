@@ -7,6 +7,7 @@ const connectButton = document.getElementById('connect') as HTMLButtonElement;
 
 const remoteAddressField = document.getElementById('remoteAddress') as HTMLInputElement;
 const createTcpButton = document.getElementById('createTcp') as HTMLButtonElement;
+const createUdpButton = document.getElementById('createUdp') as HTMLButtonElement;
 
 const connectionsDiv = document.getElementById('connections') as HTMLDivElement;
 
@@ -29,13 +30,22 @@ connectButton.addEventListener('click', async () => {
 });
 
 createTcpButton.addEventListener('click', async () => {
+    await createConnection('tcp');
+});
+
+createUdpButton.addEventListener('click', async () => {
+    await createConnection('udp');
+});
+
+async function createConnection(protocol: 'tcp'|'udp'): Promise<void> {
     const remoteAddress = remoteAddressField.value;
-    const dc = await peer.createDataChannel(`tcp:${remoteAddress}`, true);
+    const reliable = protocol === 'tcp';
+    const dc = await peer.createDataChannel(`${protocol}:${remoteAddress}`, reliable);
     
     const rowContainer = document.createElement('div');
 
     const statusField = document.createElement('span');
-    statusField.innerText = `${remoteAddress} connected: `;
+    statusField.innerText = `${remoteAddress} (${protocol}) connected: `;
     rowContainer.appendChild(statusField);
     
     const messageField = document.createElement('input');
@@ -53,6 +63,11 @@ createTcpButton.addEventListener('click', async () => {
         console.log(`Message received: ${message}`);
     });
 
+    dc.on('binaryMessage', message => {
+        console.log('Binary message received:');
+        console.log(message);
+    });
+
     dc.on('close', () => {
         console.log('Data channel closed.');
         statusField.innerText = `${remoteAddress} closed.`;
@@ -64,4 +79,4 @@ createTcpButton.addEventListener('click', async () => {
         const message = messageField.value;
         await dc.sendMessage(message);
     });
-});
+}

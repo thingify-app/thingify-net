@@ -105,6 +105,7 @@ func forwardOutStream(r io.Reader) {
 			n, err := r.Read(outgoingTerminalBuffer)
 			if err != nil {
 				fmt.Printf("Error writing to terminal: %v\n", err)
+				break
 			}
 			sendToTerminal(n)
 		}
