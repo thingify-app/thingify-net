@@ -4,7 +4,6 @@ go 1.21.1
 
 require (
 	github.com/pion/mediadevices v0.6.1
-	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
 	github.com/thingify-app/thing-rtc/peer-go v0.0.0
 	github.com/urfave/cli/v2 v2.27.1
 	github.com/vishvananda/netlink v1.1.1-0.20211118161826-650dca95af54

@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 package main
 
 import (
@@ -9,11 +12,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/songgao/water"
 	thingrtc "github.com/thingify-app/thing-rtc/peer-go"
 	peerconfig "github.com/thingify-app/thing-rtc/peer-go/peer-config"
 	"github.com/urfave/cli/v2"
 	"github.com/vishvananda/netlink"
+	"gvisor.dev/gvisor/pkg/tcpip/link/tun"
 )
 
 const SIGNALLING_SERVER_URL = "wss://thingify.deno.dev/signalling"
@@ -22,44 +25,39 @@ const REMOTE_HOST_IP = "10.0.1.2"
 
 const MTU_BYTES = 16384
 
-func setupTunInterface(name string) (io.ReadWriteCloser, error) {
-	tun, err := water.New(water.Config{
-		DeviceType: water.TUN,
-		PlatformSpecificParams: water.PlatformSpecificParams{
-			Name: name,
-		},
-	})
+func setupTunInterface(name string) (int, error) {
+	fd, err := tun.Open(name)
 
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	link, err := netlink.LinkByName(tun.Name())
+	link, err := netlink.LinkByName(name)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	addr, err := netlink.ParseAddr(DEFAULT_ADDRESS_RANGE)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	err = netlink.LinkSetMTU(link, MTU_BYTES)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	err = netlink.AddrAdd(link, addr)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	err = netlink.LinkSetUp(link)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	return tun, nil
+	return fd, nil
 }
 
 func listenOnTun(peer thingrtc.Peer) error {
@@ -141,6 +139,7 @@ func bridgeStreams(webrtcConn, netConn io.ReadWriteCloser) {
 		defer netConn.Close()
 		defer webrtcConn.Close()
 		_, err := io.Copy(netConn, webrtcConn)
+		fmt.Println("Copy webrtc to network ended")
 		if err != nil {
 			fmt.Printf("Connection failed: %v\n", err)
 		}
@@ -151,6 +150,7 @@ func bridgeStreams(webrtcConn, netConn io.ReadWriteCloser) {
 		defer netConn.Close()
 		defer webrtcConn.Close()
 		_, err := io.Copy(webrtcConn, netConn)
+		fmt.Println("Copy network to webrtc ended")
 		if err != nil {
 			fmt.Printf("Connection failed: %v\n", err)
 		}
