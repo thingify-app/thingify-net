@@ -6,7 +6,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"strconv"
@@ -107,9 +106,7 @@ func handleNewDataChannel(stack *NetworkStack, dataChannel thingrtc.DataChannel)
 		return err
 	}
 
-	interceptor := &Interceptor{Stream: dcStream}
-
-	bridgeStreams(interceptor, conn)
+	bridgeStreams(dcStream, conn)
 	return nil
 }
 
@@ -155,32 +152,6 @@ func bridgeStreams(webrtcConn, netConn io.ReadWriteCloser) {
 			fmt.Printf("Connection failed: %v\n", err)
 		}
 	}()
-}
-
-// Interceptor wraps an existing io.ReadWriteCloser
-type Interceptor struct {
-	Stream io.ReadWriteCloser
-}
-
-// Read intercepts incoming data
-func (i *Interceptor) Read(p []byte) (n int, err error) {
-	n, err = i.Stream.Read(p)
-	if n > 0 {
-		log.Printf("Intercepted Read (len %v): %x\n", n, p[:n]) // Or string(p[:n]) for text
-	}
-	return n, err
-}
-
-// Write intercepts outgoing data
-func (i *Interceptor) Write(p []byte) (n int, err error) {
-	log.Printf("Intercepted Write (len %v): %x\n", len(p), p)
-	return i.Stream.Write(p)
-}
-
-// Close delegates the close operation
-func (i *Interceptor) Close() error {
-	log.Println("Closing stream...")
-	return i.Stream.Close()
 }
 
 func createPeer(sharedSecretBase64 string, withMedia bool, useRtsp bool, rtspUrl string) (peer thingrtc.Peer, err error) {

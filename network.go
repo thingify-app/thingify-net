@@ -13,7 +13,6 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/link/fdbased"
-	"gvisor.dev/gvisor/pkg/tcpip/link/sniffer"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
@@ -47,7 +46,7 @@ func createStack(localAddrName string, localTunFd int) (*NetworkStack, error) {
 		return nil, fmt.Errorf("error creating link: %v", err)
 	}
 
-	if err := s.CreateNIC(1, sniffer.New(linkEP)); err != nil {
+	if err := s.CreateNIC(1, linkEP); err != nil {
 		return nil, fmt.Errorf("error creating NIC: %v", err)
 	}
 
