@@ -18,7 +18,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/link/tun"
 )
 
-const SIGNALLING_SERVER_URL = "wss://thingify.deno.dev/signalling"
+const SIGNALLING_SERVER_URL = "wss://signalling.thingify.app/signalling"
 const DEFAULT_ADDRESS_RANGE = "10.0.1.1/24"
 const REMOTE_HOST_IP = "10.0.1.2"
 
