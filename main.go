@@ -14,74 +14,32 @@ import (
 	thingrtc "github.com/thingify-app/thing-rtc/peer-go"
 	peerconfig "github.com/thingify-app/thing-rtc/peer-go/peer-config"
 	"github.com/urfave/cli/v2"
-	"github.com/vishvananda/netlink"
-	"gvisor.dev/gvisor/pkg/tcpip/link/tun"
 )
 
 const SIGNALLING_SERVER_URL = "wss://signalling.thingify.app/signalling"
+const INTERFACE_NAME = "thingify0"
 const DEFAULT_ADDRESS_RANGE = "10.0.1.1/24"
-const REMOTE_HOST_IP = "10.0.1.2"
+const START_HOST_IP = "10.0.1.2"
 
-const MTU_BYTES = 16384
-
-func setupTunInterface(name string) (int, error) {
-	fd, err := tun.Open(name)
-
-	if err != nil {
-		return 0, err
-	}
-
-	link, err := netlink.LinkByName(name)
-	if err != nil {
-		return 0, err
-	}
-
-	addr, err := netlink.ParseAddr(DEFAULT_ADDRESS_RANGE)
-	if err != nil {
-		return 0, err
-	}
-
-	err = netlink.LinkSetMTU(link, MTU_BYTES)
-	if err != nil {
-		return 0, err
-	}
-
-	err = netlink.AddrAdd(link, addr)
-	if err != nil {
-		return 0, err
-	}
-
-	err = netlink.LinkSetUp(link)
-	if err != nil {
-		return 0, err
-	}
-
-	return fd, nil
-}
-
-func listenOnTun(peer thingrtc.Peer) error {
-	tun, err := setupTunInterface("thingify0")
-	if err != nil {
-		return err
-	}
-
-	stack, err := createStack(REMOTE_HOST_IP, tun)
+func handleNewPeer(stack *NetworkStack, peer thingrtc.Peer) error {
+	// We do not need to release the client, because there is a fixed number of
+	// peers and each persists forever.
+	client, err := stack.LeaseClient()
 	if err != nil {
 		return err
 	}
 
 	peer.OnDataChannel(func(dataChannel thingrtc.DataChannel) {
-		err := handleNewDataChannel(stack, dataChannel)
+		err := handleNewDataChannel(client, dataChannel)
 		if err != nil {
 			fmt.Printf("Failed to handle new data channel '%v': %v\n", dataChannel.GetLabel(), err)
 		}
 	})
 
-	// Block forever waiting for data channels:
-	select {}
+	return nil
 }
 
-func handleNewDataChannel(stack *NetworkStack, dataChannel thingrtc.DataChannel) error {
+func handleNewDataChannel(client *Client, dataChannel thingrtc.DataChannel) error {
 	label := dataChannel.GetLabel()
 	protocol, targetIp, targetPort, err := parseLabel(label)
 	if err != nil {
@@ -96,9 +54,9 @@ func handleNewDataChannel(stack *NetworkStack, dataChannel thingrtc.DataChannel)
 	var conn net.Conn
 
 	if protocol == "tcp" {
-		conn, err = stack.DialTCP(targetIp, targetPort)
+		conn, err = client.DialTCP(targetIp, targetPort)
 	} else if protocol == "udp" {
-		conn, err = stack.DialUDP(targetIp, targetPort)
+		conn, err = client.DialUDP(targetIp, targetPort)
 	}
 
 	if err != nil {
@@ -184,30 +142,40 @@ func createPeer(sharedSecretBase64 string, withMedia bool, useRtsp bool, rtspUrl
 	}
 }
 
-func connect(sharedSecretBase64 string, withMedia bool, withRtsp bool, rtspUrl string) error {
-	peer, err := createPeer(sharedSecretBase64, withMedia, withRtsp, rtspUrl)
+func connect(sharedSecrets []string, withMedia bool, withRtsp bool, rtspUrl string) error {
+	stack, err := CreateStack(INTERFACE_NAME, START_HOST_IP)
 	if err != nil {
 		return err
 	}
 
-	peer.OnConnectionStateChange(func(connectionState int) {
-		switch connectionState {
-		case thingrtc.Disconnected:
-			fmt.Println("Disconnected")
-		case thingrtc.Connecting:
-			fmt.Println("Connecting...")
-		case thingrtc.Connected:
-			fmt.Println("Connected.")
+	// Create one peer for each sharedSecret:
+	for _, sharedSecret := range sharedSecrets {
+		peer, err := createPeer(sharedSecret, withMedia, withRtsp, rtspUrl)
+		if err != nil {
+			return err
 		}
-	})
 
-	peer.Connect()
+		peer.OnConnectionStateChange(func(connectionState int) {
+			switch connectionState {
+			case thingrtc.Disconnected:
+				fmt.Println("Disconnected")
+			case thingrtc.Connecting:
+				fmt.Println("Connecting...")
+			case thingrtc.Connected:
+				fmt.Println("Connected.")
+			}
+		})
 
-	err = listenOnTun(peer)
-	if err != nil {
-		return err
+		peer.Connect()
+
+		err = handleNewPeer(stack, peer)
+		if err != nil {
+			return err
+		}
 	}
-	return nil
+
+	// Block forever for peers to connect/re-connect:
+	select {}
 }
 
 func main() {
@@ -219,11 +187,11 @@ func main() {
 		Commands: []*cli.Command{
 			{
 				Name:  "connect",
-				Usage: "Create an network interface to a peer",
+				Usage: "Create a network interface to peers",
 				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:     "secret",
-						Usage:    "shared secret of the peer to connect to",
+					&cli.StringSliceFlag{
+						Name:     "secrets",
+						Usage:    "shared secrets of the peers to connect to",
 						Required: true,
 					},
 					&cli.BoolFlag{
@@ -233,7 +201,7 @@ func main() {
 					},
 				},
 				Action: func(ctx *cli.Context) error {
-					return connect(ctx.String("secret"), ctx.Bool("withMedia"), withRtsp, rtspUrl)
+					return connect(ctx.StringSlice("secrets"), ctx.Bool("withMedia"), withRtsp, rtspUrl)
 				},
 			},
 		},

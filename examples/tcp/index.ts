@@ -1,6 +1,6 @@
 import { createResponderConfig, InsecureServerAuth, Listeners, ThingPeer } from 'thingrtc-peer';
 
-const SIGNALLING_SERVER_URL = 'wss://thingify.deno.dev/signalling';
+const SIGNALLING_SERVER_URL = 'wss://signalling.thingify.app/signalling';
 
 const sharedSecretField = document.getElementById('sharedSecret') as HTMLInputElement;
 const connectButton = document.getElementById('connect') as HTMLButtonElement;

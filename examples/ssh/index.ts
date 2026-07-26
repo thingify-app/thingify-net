@@ -7,7 +7,7 @@ interface SSHConnection {
     readFromNetwork(buf: Uint8Array): void;
 }
 
-const SIGNALLING_SERVER_URL = 'wss://thingify.deno.dev/signalling';
+const SIGNALLING_SERVER_URL = 'wss://signalling.thingify.app/signalling';
 const REMOTE_HOST = '10.0.1.1';
 
 function callFuncWithStrings(func: (...args: any[]) => any, memory: ArrayBuffer, mallocFunc: (n: number) => number, ...args: string[]) {
