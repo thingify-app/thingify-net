@@ -1,0 +1,22 @@
+[Unit]
+Description=Thingify
+
+[Service]
+ExecStart=/usr/local/bin/thingify-net connect --config /etc/thingify/thingify_config.yaml
+
+# Grant ability to act as a network interface without requiring root.
+AmbientCapabilities=CAP_NET_ADMIN
+
+# Restart in the event of a crash
+Restart=always
+
+# Rate limit restarts, which also avoids the process being permanently killed.
+RestartSec=3
+
+# Run as an unprivileged, dedicated system user (created by the postinstall
+# script) rather than root.
+User=thingify
+Group=thingify
+
+[Install]
+WantedBy=multi-user.target

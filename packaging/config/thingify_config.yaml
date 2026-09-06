@@ -1,0 +1,7 @@
+with_media: false
+use_rtsp: false
+rtsp_url: ""
+
+# TODO: remove this, hardcoding for now to test it out.
+shared_secrets:
+  - "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=="

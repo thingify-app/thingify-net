@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 package main
 
@@ -14,6 +13,7 @@ import (
 	thingrtc "github.com/thingify-app/thing-rtc/peer-go"
 	peerconfig "github.com/thingify-app/thing-rtc/peer-go/peer-config"
 	"github.com/urfave/cli/v2"
+	"gopkg.in/yaml.v3"
 )
 
 const SIGNALLING_SERVER_URL = "wss://signalling.thingify.app/signalling"
@@ -142,15 +142,15 @@ func createPeer(sharedSecretBase64 string, withMedia bool, useRtsp bool, rtspUrl
 	}
 }
 
-func connect(sharedSecrets []string, withMedia bool, withRtsp bool, rtspUrl string) error {
+func connect(config *Config) error {
 	stack, err := CreateStack(INTERFACE_NAME, START_HOST_IP)
 	if err != nil {
 		return err
 	}
 
 	// Create one peer for each sharedSecret:
-	for _, sharedSecret := range sharedSecrets {
-		peer, err := createPeer(sharedSecret, withMedia, withRtsp, rtspUrl)
+	for _, sharedSecret := range config.SharedSecrets {
+		peer, err := createPeer(sharedSecret, config.WithMedia, config.WithRtsp, config.RtspUrl)
 		if err != nil {
 			return err
 		}
@@ -178,9 +178,30 @@ func connect(sharedSecrets []string, withMedia bool, withRtsp bool, rtspUrl stri
 	select {}
 }
 
+type Config struct {
+	SharedSecrets []string `yaml:"shared_secrets"`
+	WithMedia     bool     `yaml:"with_media"`
+	WithRtsp      bool     `yaml:"with_rtsp"`
+	RtspUrl       string   `yaml:"rtsp_url"`
+}
+
+func loadConfig(configFile string) (*Config, error) {
+	yamlFile, err := os.ReadFile(configFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var config Config
+
+	err = yaml.Unmarshal(yamlFile, &config)
+	if err != nil {
+		return nil, err
+	}
+
+	return &config, nil
+}
+
 func main() {
-	withRtsp := (os.Getenv("USE_RTSP") == "true")
-	rtspUrl := os.Getenv("RTSP_URL")
 	app := cli.App{
 		Name:  "thingify-net",
 		Usage: "Create virtual networks with web browsers over WebRTC.",
@@ -189,19 +210,18 @@ func main() {
 				Name:  "connect",
 				Usage: "Create a network interface to peers",
 				Flags: []cli.Flag{
-					&cli.StringSliceFlag{
-						Name:     "secrets",
-						Usage:    "shared secrets of the peers to connect to",
+					&cli.PathFlag{
+						Name:     "config",
+						Usage:    "path to the YAML config file",
 						Required: true,
-					},
-					&cli.BoolFlag{
-						Name:  "withMedia",
-						Usage: "Set to enable media (camera) streaming",
-						Value: false,
 					},
 				},
 				Action: func(ctx *cli.Context) error {
-					return connect(ctx.StringSlice("secrets"), ctx.Bool("withMedia"), withRtsp, rtspUrl)
+					config, err := loadConfig(ctx.Path("config"))
+					if err != nil {
+						return err
+					}
+					return connect(config)
 				},
 			},
 		},

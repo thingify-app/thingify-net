@@ -1,0 +1,39 @@
+name: "thingify-net"
+arch: "arm64"
+platform: "linux"
+
+version: "0.0.1"
+section: "default"
+
+depends:
+  - systemd
+
+maintainer: "Thingify <thingify@thingify.app>"
+description: |
+  Create a peer-to-peer VPN with direct connectivity to web browsers.
+vendor: "Thingify"
+homepage: "https://thingify.app"
+license: "MIT"
+
+scripts:
+  postinstall: ./scripts/postinstall.sh
+  preremove: ./scripts/preremove.sh
+  postremove: ./scripts/postremove.sh
+
+contents:
+  - src: ./build/thingify-net
+    dst: /usr/local/bin/
+    file_info:
+      mode: 0755
+
+  - src: ./config/thingify.service
+    dst: /etc/systemd/system/
+    type: config
+
+  - src: ./config/thingify_config.yaml
+    dst: /etc/thingify/
+    type: config
+    file_info:
+      # Set to only allow the "thingify" user to read, as it may contain
+      # sensitive values:
+      mode: 0600

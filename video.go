@@ -1,5 +1,4 @@
 //go:build !with_camera
-// +build !with_camera
 
 package main
 

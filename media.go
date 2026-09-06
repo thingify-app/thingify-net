@@ -1,13 +1,13 @@
-//go:build !with_mmal
-// +build !with_mmal
+//go:build !with_x264 && !with_mmal
 
 package main
 
 import (
+	"fmt"
+
 	"github.com/thingify-app/thing-rtc/peer-go/codec"
-	"github.com/thingify-app/thing-rtc/peer-go/codec/x264"
 )
 
 func makeCodec() (*codec.Codec, error) {
-	return x264.NewCodec(500_000)
+	return nil, fmt.Errorf("Built with no codecs")
 }

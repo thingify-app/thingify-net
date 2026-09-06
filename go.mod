@@ -7,6 +7,7 @@ require (
 	github.com/thingify-app/thing-rtc/peer-go v0.0.0
 	github.com/urfave/cli/v2 v2.27.1
 	github.com/vishvananda/netlink v1.1.1-0.20211118161826-650dca95af54
+	gopkg.in/yaml.v3 v3.0.1
 	gvisor.dev/gvisor v0.0.0-20240328192514-2162b311bd13
 )
 
@@ -44,7 +45,6 @@ require (
 	golang.org/x/net v0.22.0 // indirect
 	golang.org/x/sys v0.18.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 replace github.com/thingify-app/thing-rtc/peer-go => ../thing-rtc/peer-go

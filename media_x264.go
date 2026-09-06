@@ -1,12 +1,12 @@
-//go:build with_mmal
+//go:build with_x264
 
 package main
 
 import (
 	"github.com/thingify-app/thing-rtc/peer-go/codec"
-	"github.com/thingify-app/thing-rtc/peer-go/codec/mmal"
+	"github.com/thingify-app/thing-rtc/peer-go/codec/x264"
 )
 
 func makeCodec() (*codec.Codec, error) {
-	return mmal.NewCodec(1_000_000)
+	return x264.NewCodec(500_000)
 }
