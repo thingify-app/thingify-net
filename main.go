@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	thingrtc "github.com/thingify-app/thing-rtc/peer-go"
+	"github.com/thingify-app/thing-rtc/peer-go/pairing"
 	peerconfig "github.com/thingify-app/thing-rtc/peer-go/peer-config"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v3"
@@ -20,6 +22,7 @@ const SIGNALLING_SERVER_URL = "wss://signalling.thingify.app/signalling"
 const INTERFACE_NAME = "thingify0"
 const DEFAULT_ADDRESS_RANGE = "10.0.1.1/24"
 const START_HOST_IP = "10.0.1.2"
+const MAX_CONNS_PER_PEER = 2
 
 func handleNewPeer(stack *NetworkStack, peer thingrtc.Peer) error {
 	// We do not need to release the client, because there is a fixed number of
@@ -35,6 +38,19 @@ func handleNewPeer(stack *NetworkStack, peer thingrtc.Peer) error {
 			fmt.Printf("Failed to handle new data channel '%v': %v\n", dataChannel.GetLabel(), err)
 		}
 	})
+
+	peer.OnConnectionStateChange(func(connectionState int) {
+		switch connectionState {
+		case thingrtc.Disconnected:
+			fmt.Println("Disconnected")
+		case thingrtc.Connecting:
+			fmt.Println("Connecting...")
+		case thingrtc.Connected:
+			fmt.Println("Connected.")
+		}
+	})
+
+	peer.Connect()
 
 	return nil
 }
@@ -112,11 +128,7 @@ func bridgeStreams(webrtcConn, netConn io.ReadWriteCloser) {
 	}()
 }
 
-func createPeer(sharedSecretBase64 string, withMedia bool, useRtsp bool, rtspUrl string) (peer thingrtc.Peer, err error) {
-	peerConfig, err := peerconfig.CreateInitiatorConfigWithSecret(sharedSecretBase64)
-	if err != nil {
-		return nil, err
-	}
+func createPeer(peerConfig *peerconfig.PeerConfig, withMedia bool, useRtsp bool, rtspUrl string) (peer thingrtc.Peer, err error) {
 	serverAuth := thingrtc.CreateInsecureServerAuth(peerConfig.PairingId, peerConfig.Role)
 
 	if withMedia {
@@ -142,47 +154,133 @@ func createPeer(sharedSecretBase64 string, withMedia bool, useRtsp bool, rtspUrl
 	}
 }
 
-func connect(config *Config) error {
-	stack, err := CreateStack(INTERFACE_NAME, START_HOST_IP)
-	if err != nil {
-		return err
-	}
-
-	// Create one peer for each sharedSecret:
-	for _, sharedSecret := range config.SharedSecrets {
-		peer, err := createPeer(sharedSecret, config.WithMedia, config.WithRtsp, config.RtspUrl)
+func createPeersForConfig(stack *NetworkStack, config *Config, peerConfig *peerconfig.PeerConfig) error {
+	// Create a peer for each potential connection from this public key.
+	for i := 0; i < MAX_CONNS_PER_PEER; i++ {
+		peer, err := createPeer(peerConfig, config.WithMedia, config.WithRtsp, config.RtspUrl)
 		if err != nil {
 			return err
 		}
-
-		peer.OnConnectionStateChange(func(connectionState int) {
-			switch connectionState {
-			case thingrtc.Disconnected:
-				fmt.Println("Disconnected")
-			case thingrtc.Connecting:
-				fmt.Println("Connecting...")
-			case thingrtc.Connected:
-				fmt.Println("Connected.")
-			}
-		})
-
-		peer.Connect()
 
 		err = handleNewPeer(stack, peer)
 		if err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+func createKeyPairPeers(stack *NetworkStack, config *Config) error {
+	// Create peers for each public key:
+	for _, spki := range config.TrustedPublicKeys {
+		publicKey, err := peerconfig.CreateRemoteKey(spki)
+		if err != nil {
+			return err
+		}
+
+		localKeyPair, err := loadLocalKeyPair(config.PrivateKeyFile)
+		if err != nil {
+			return err
+		}
+
+		peerConfig, err := peerconfig.CreateKeyPairConfig(publicKey, *localKeyPair, "initiator")
+		if err != nil {
+			return err
+		}
+
+		err = createPeersForConfig(stack, config, peerConfig)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func createSharedSecretPeers(stack *NetworkStack, config *Config) error {
+	// Create peers for each shared secret:
+	for _, sharedSecret := range config.SharedSecrets {
+		peerConfig, err := peerconfig.CreateInitiatorConfigWithSecret(sharedSecret)
+		if err != nil {
+			return err
+		}
+
+		err = createPeersForConfig(stack, config, peerConfig)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func connect(config *Config) error {
+	stack, err := CreateStack(INTERFACE_NAME, START_HOST_IP)
+	if err != nil {
+		return err
+	}
+
+	err = createSharedSecretPeers(stack, config)
+	if err != nil {
+		return err
+	}
+
+	err = createKeyPairPeers(stack, config)
+	if err != nil {
+		return err
+	}
 
 	// Block forever for peers to connect/re-connect:
 	select {}
 }
 
+func loadLocalKeyPair(privateKeyFile string) (*pairing.KeyPair, error) {
+	data, err := os.ReadFile(privateKeyFile)
+	if err != nil {
+		return nil, err
+	}
+
+	return peerconfig.LoadLocalKeyPair(string(data))
+}
+
+func generateLocalKeyPair(privateKeyFile string) error {
+	keyPair, err := peerconfig.CreateLocalKeyPair()
+	if err != nil {
+		return err
+	}
+
+	jwk := keyPair.PrivateKey.ExportJwk()
+
+	// Only allow the current user to read/write the file:
+	err = os.WriteFile(privateKeyFile, []byte(jwk), 0600)
+	if err != nil {
+		return err
+	}
+
+	publicKeySpki := base64.StdEncoding.EncodeToString(keyPair.PublicKey.ExportSpki())
+	fmt.Printf("Generated keypair with public key: %v\n", publicKeySpki)
+
+	return nil
+}
+
+func printLocalPublicKey(privateKeyFile string) error {
+	keyPair, err := loadLocalKeyPair(privateKeyFile)
+	if err != nil {
+		return err
+	}
+
+	spki := keyPair.PublicKey.ExportSpki()
+	fmt.Println(base64.StdEncoding.EncodeToString(spki))
+
+	return nil
+}
+
 type Config struct {
-	SharedSecrets []string `yaml:"shared_secrets"`
-	WithMedia     bool     `yaml:"with_media"`
-	WithRtsp      bool     `yaml:"with_rtsp"`
-	RtspUrl       string   `yaml:"rtsp_url"`
+	WithMedia         bool     `yaml:"with_media"`
+	WithRtsp          bool     `yaml:"with_rtsp"`
+	RtspUrl           string   `yaml:"rtsp_url"`
+	SharedSecrets     []string `yaml:"shared_secrets"`
+	PrivateKeyFile    string   `yaml:"private_key_file"`
+	TrustedPublicKeys []string `yaml:"trusted_public_keys"`
 }
 
 func loadConfig(configFile string) (*Config, error) {
@@ -222,6 +320,36 @@ func main() {
 						return err
 					}
 					return connect(config)
+				},
+			},
+			{
+				Name:  "generateKeyPair",
+				Usage: "Generates a new keypair and saves it in the given file",
+
+				Flags: []cli.Flag{
+					&cli.PathFlag{
+						Name:     "file",
+						Usage:    "path of the private key file to create",
+						Required: true,
+					},
+				},
+				Action: func(ctx *cli.Context) error {
+					return generateLocalKeyPair(ctx.Path("file"))
+				},
+			},
+			{
+				Name:  "printPublicKey",
+				Usage: "Prints the public key from the given private key file",
+
+				Flags: []cli.Flag{
+					&cli.PathFlag{
+						Name:     "file",
+						Usage:    "path of the private key file to read",
+						Required: true,
+					},
+				},
+				Action: func(ctx *cli.Context) error {
+					return printLocalPublicKey(ctx.Path("file"))
 				},
 			},
 		},

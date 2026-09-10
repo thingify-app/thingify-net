@@ -1,7 +1,11 @@
+# Media config:
 with_media: false
 use_rtsp: false
 rtsp_url: ""
 
-# TODO: remove this, hardcoding for now to test it out.
-shared_secrets:
-  - "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=="
+# SharedSecret peer config:
+shared_secrets: []
+
+# KeyPair peer config:
+private_key_file: "/etc/thingify/private_key.json"
+trusted_public_keys: []
