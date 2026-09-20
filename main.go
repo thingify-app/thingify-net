@@ -19,6 +19,12 @@ import (
 )
 
 const SIGNALLING_SERVER_URL = "wss://signalling.thingify.app/signalling"
+
+const DEFAULT_CONFIG_DIR = "/etc/thingify"
+const DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR + "/thingify_config.yaml"
+const DEFAULT_PRIVATE_KEY_FILE = DEFAULT_CONFIG_DIR + "/private_key.json"
+const DEFAULT_TRUSTED_KEY_FILE = DEFAULT_CONFIG_DIR + "/trusted_keys.yaml"
+
 const INTERFACE_NAME = "thingify0"
 const DEFAULT_ADDRESS_RANGE = "10.0.1.1/24"
 const START_HOST_IP = "10.0.1.2"
@@ -171,13 +177,13 @@ func createPeersForConfig(stack *NetworkStack, config *Config, peerConfig *peerc
 }
 
 func createKeyPairPeers(stack *NetworkStack, config *Config) error {
-	// Create peers for each public key:
-	for _, spki := range config.TrustedPublicKeys {
-		publicKey, err := peerconfig.CreateRemoteKey(spki)
-		if err != nil {
-			return err
-		}
+	trustedKeys, err := loadTrustedKeys(config.TrustedKeysFile)
+	if err != nil {
+		return err
+	}
 
+	// Create peers for each public key:
+	for _, publicKey := range trustedKeys {
 		localKeyPair, err := loadLocalKeyPair(config.PrivateKeyFile)
 		if err != nil {
 			return err
@@ -274,13 +280,99 @@ func printLocalPublicKey(privateKeyFile string) error {
 	return nil
 }
 
+func listTrustedKeys(trustedKeyFile string) error {
+	keys, err := loadTrustedKeys(trustedKeyFile)
+	if err != nil {
+		return err
+	}
+
+	for _, k := range keys {
+		fmt.Printf("- %v\n", base64.StdEncoding.EncodeToString(k.ExportSpki()))
+	}
+
+	return nil
+}
+
+func addTrustedKey(publicKey string, trustedKeyFile string, privateKeyFile string) error {
+	keys, err := loadTrustedKeys(trustedKeyFile)
+	if err != nil {
+		return err
+	}
+
+	parsedKey, err := peerconfig.CreateRemoteKey(publicKey)
+	if err != nil {
+		return err
+	}
+
+	keys = append(keys, parsedKey)
+	err = saveTrustedKeys(trustedKeyFile, keys)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Paste this public key into the pairing window:")
+	printLocalPublicKey(privateKeyFile)
+	return nil
+}
+
+type TrustedKeys struct {
+	TrustedKeys []string `yaml:"trusted_keys"`
+}
+
+func loadTrustedKeys(file string) ([]pairing.PublicKey, error) {
+	yamlFile, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+
+	var trustedKeys TrustedKeys
+
+	err = yaml.Unmarshal(yamlFile, &trustedKeys)
+	if err != nil {
+		return nil, err
+	}
+
+	publicKeys := make([]pairing.PublicKey, len(trustedKeys.TrustedKeys))
+	for i, key := range trustedKeys.TrustedKeys {
+		publicKey, err := peerconfig.CreateRemoteKey(key)
+		if err != nil {
+			return nil, err
+		}
+		publicKeys[i] = publicKey
+	}
+
+	return publicKeys, nil
+}
+
+func saveTrustedKeys(file string, keys []pairing.PublicKey) error {
+	spkiKeys := make([]string, len(keys))
+	for i, key := range keys {
+		spkiKeys[i] = base64.StdEncoding.EncodeToString(key.ExportSpki())
+	}
+
+	trustedKeys := TrustedKeys{
+		TrustedKeys: spkiKeys,
+	}
+	data, err := yaml.Marshal(trustedKeys)
+	if err != nil {
+		return err
+	}
+
+	err = os.WriteFile(file, data, 0644)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 type Config struct {
-	WithMedia         bool     `yaml:"with_media"`
-	WithRtsp          bool     `yaml:"with_rtsp"`
-	RtspUrl           string   `yaml:"rtsp_url"`
-	SharedSecrets     []string `yaml:"shared_secrets"`
-	PrivateKeyFile    string   `yaml:"private_key_file"`
-	TrustedPublicKeys []string `yaml:"trusted_public_keys"`
+	WithMedia       bool     `yaml:"with_media"`
+	WithRtsp        bool     `yaml:"with_rtsp"`
+	RtspUrl         string   `yaml:"rtsp_url"`
+	SharedSecrets   []string `yaml:"shared_secrets"`
+	PrivateKeyFile  string   `yaml:"private_key_file"`
+	TrustedKeysFile string   `yaml:"trusted_keys_file"`
 }
 
 func loadConfig(configFile string) (*Config, error) {
@@ -309,9 +401,9 @@ func main() {
 				Usage: "Create a network interface to peers",
 				Flags: []cli.Flag{
 					&cli.PathFlag{
-						Name:     "config",
-						Usage:    "path to the YAML config file",
-						Required: true,
+						Name:  "config",
+						Usage: "path to the YAML config file",
+						Value: DEFAULT_CONFIG_FILE,
 					},
 				},
 				Action: func(ctx *cli.Context) error {
@@ -328,9 +420,9 @@ func main() {
 
 				Flags: []cli.Flag{
 					&cli.PathFlag{
-						Name:     "file",
-						Usage:    "path of the private key file to create",
-						Required: true,
+						Name:  "file",
+						Usage: "path of the private key file to create",
+						Value: DEFAULT_PRIVATE_KEY_FILE,
 					},
 				},
 				Action: func(ctx *cli.Context) error {
@@ -343,13 +435,53 @@ func main() {
 
 				Flags: []cli.Flag{
 					&cli.PathFlag{
-						Name:     "file",
-						Usage:    "path of the private key file to read",
-						Required: true,
+						Name:  "file",
+						Usage: "path of the private key file to read",
+						Value: DEFAULT_PRIVATE_KEY_FILE,
 					},
 				},
 				Action: func(ctx *cli.Context) error {
 					return printLocalPublicKey(ctx.Path("file"))
+				},
+			},
+			{
+				Name:  "listTrustedKeys",
+				Usage: "Lists the saved trusted public keys",
+
+				Flags: []cli.Flag{
+					&cli.PathFlag{
+						Name:  "file",
+						Usage: "path of the trusted key file to read",
+						Value: DEFAULT_TRUSTED_KEY_FILE,
+					},
+				},
+				Action: func(ctx *cli.Context) error {
+					return listTrustedKeys(ctx.Path("file"))
+				},
+			},
+			{
+				Name:  "addTrustedKey",
+				Usage: "Adds the provided public key to the trusted keys and prints its own",
+
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:     "publicKey",
+						Usage:    "base64-encoded public key to add to trusted keys",
+						Required: true,
+					},
+					&cli.PathFlag{
+						Name:  "trustedKeyFile",
+						Usage: "path of the trusted key file to read",
+						Value: DEFAULT_TRUSTED_KEY_FILE,
+					},
+					&cli.PathFlag{
+						Name:  "privateKeyFile",
+						Usage: "path of the private key file to read",
+						Value: DEFAULT_PRIVATE_KEY_FILE,
+					},
+				},
+				Action: func(ctx *cli.Context) error {
+					return addTrustedKey(ctx.String("publicKey"), ctx.Path("trustedKeyFile"), ctx.Path("privateKeyFile"))
 				},
 			},
 		},

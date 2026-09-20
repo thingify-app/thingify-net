@@ -2,7 +2,7 @@
 Description=Thingify
 
 [Service]
-ExecStart=/usr/local/bin/thingify-net connect --config /etc/thingify/thingify_config.yaml
+ExecStart=/usr/local/bin/thingify connect --config /etc/thingify/thingify_config.yaml
 
 # Grant ability to act as a network interface without requiring root.
 AmbientCapabilities=CAP_NET_ADMIN

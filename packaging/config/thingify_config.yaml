@@ -8,4 +8,4 @@ shared_secrets: []
 
 # KeyPair peer config:
 private_key_file: "/etc/thingify/private_key.json"
-trusted_public_keys: []
+trusted_keys_file: "/etc/thingify/trusted_keys.yaml"

@@ -1,4 +1,4 @@
-name: "thingify-net"
+name: "thingify"
 arch: "arm64"
 platform: "linux"
 
@@ -21,7 +21,7 @@ scripts:
   postremove: ./scripts/postremove.sh
 
 contents:
-  - src: ./build/thingify-net
+  - src: ./build/thingify
     dst: /usr/local/bin/
     file_info:
       mode: 0755
@@ -37,3 +37,10 @@ contents:
       # Set to only allow the "thingify" user to read, as it may contain
       # sensitive values:
       mode: 0600
+
+  - src: ./config/trusted_keys.yaml
+    dst: /etc/thingify/
+    type: config
+    file_info:
+      # Set to only allow anyone to read, but only the "thingify" user to write:
+      mode: 0644

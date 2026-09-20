@@ -11,7 +11,7 @@ fi
 chown -R thingify:thingify /etc/thingify
 
 # Generate a keypair and save it as the thingify user to ensure correct permissions:
-runuser -u thingify -- /usr/local/bin/thingify-net generateKeyPair --file /etc/thingify/private_key.json
+runuser -u thingify -- /usr/local/bin/thingify generateKeyPair --file /etc/thingify/private_key.json
 
 systemctl daemon-reload
 
