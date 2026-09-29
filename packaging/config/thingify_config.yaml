@@ -1,6 +1,6 @@
 # Media config:
 with_media: false
-use_rtsp: false
+with_rtsp: false
 rtsp_url: ""
 
 # SharedSecret peer config:

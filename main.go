@@ -134,41 +134,37 @@ func bridgeStreams(webrtcConn, netConn io.ReadWriteCloser) {
 	}()
 }
 
-func createPeer(peerConfig *peerconfig.PeerConfig, withMedia bool, useRtsp bool, rtspUrl string) (peer thingrtc.Peer, err error) {
+func createPeer(peerConfig *peerconfig.PeerConfig, mediaSource *thingrtc.MediaSource) thingrtc.Peer {
 	serverAuth := thingrtc.CreateInsecureServerAuth(peerConfig.PairingId, peerConfig.Role)
 
+	if mediaSource != nil {
+		return thingrtc.NewPeerWithMedia(SIGNALLING_SERVER_URL, serverAuth, peerConfig, true, mediaSource)
+	} else {
+		return thingrtc.NewPeer(SIGNALLING_SERVER_URL, serverAuth, peerConfig, true)
+	}
+}
+
+func createMediaSource(withMedia bool, withRtsp bool, rtspUrl string) (*thingrtc.MediaSource, error) {
 	if withMedia {
-		var videoSource *thingrtc.MediaSource
-		if useRtsp {
-			videoSource, err = thingrtc.CreateRtspMediaSource(rtspUrl)
-			if err != nil {
-				return nil, err
-			}
+		if withRtsp {
+			return thingrtc.CreateRtspMediaSource(rtspUrl)
 		} else {
 			codec, err := makeCodec()
 			if err != nil {
 				return nil, err
 			}
-			videoSource, err = thingrtc.CreateVideoMediaSource(codec, 640, 480)
-			if err != nil {
-				return nil, err
-			}
+			return thingrtc.CreateVideoMediaSource(codec, 640, 480)
 		}
-		return thingrtc.NewPeerWithMedia(SIGNALLING_SERVER_URL, serverAuth, peerConfig, true, videoSource), nil
-	} else {
-		return thingrtc.NewPeer(SIGNALLING_SERVER_URL, serverAuth, peerConfig, true), nil
 	}
+	return nil, nil
 }
 
-func createPeersForConfig(stack *NetworkStack, config *Config, peerConfig *peerconfig.PeerConfig) error {
+func createPeersForConfig(stack *NetworkStack, peerConfig *peerconfig.PeerConfig, mediaSource *thingrtc.MediaSource) error {
 	// Create a peer for each potential connection from this public key.
 	for i := 0; i < MAX_CONNS_PER_PEER; i++ {
-		peer, err := createPeer(peerConfig, config.WithMedia, config.WithRtsp, config.RtspUrl)
-		if err != nil {
-			return err
-		}
+		peer := createPeer(peerConfig, mediaSource)
 
-		err = handleNewPeer(stack, peer)
+		err := handleNewPeer(stack, peer)
 		if err != nil {
 			return err
 		}
@@ -176,7 +172,7 @@ func createPeersForConfig(stack *NetworkStack, config *Config, peerConfig *peerc
 	return nil
 }
 
-func createKeyPairPeers(stack *NetworkStack, config *Config) error {
+func createKeyPairPeers(stack *NetworkStack, config *Config, mediaSource *thingrtc.MediaSource) error {
 	trustedKeys, err := loadTrustedKeys(config.TrustedKeysFile)
 	if err != nil {
 		return err
@@ -194,7 +190,7 @@ func createKeyPairPeers(stack *NetworkStack, config *Config) error {
 			return err
 		}
 
-		err = createPeersForConfig(stack, config, peerConfig)
+		err = createPeersForConfig(stack, peerConfig, mediaSource)
 		if err != nil {
 			return err
 		}
@@ -203,7 +199,7 @@ func createKeyPairPeers(stack *NetworkStack, config *Config) error {
 	return nil
 }
 
-func createSharedSecretPeers(stack *NetworkStack, config *Config) error {
+func createSharedSecretPeers(stack *NetworkStack, config *Config, mediaSource *thingrtc.MediaSource) error {
 	// Create peers for each shared secret:
 	for _, sharedSecret := range config.SharedSecrets {
 		peerConfig, err := peerconfig.CreateInitiatorConfigWithSecret(sharedSecret)
@@ -211,7 +207,7 @@ func createSharedSecretPeers(stack *NetworkStack, config *Config) error {
 			return err
 		}
 
-		err = createPeersForConfig(stack, config, peerConfig)
+		err = createPeersForConfig(stack, peerConfig, mediaSource)
 		if err != nil {
 			return err
 		}
@@ -225,12 +221,19 @@ func connect(config *Config) error {
 		return err
 	}
 
-	err = createSharedSecretPeers(stack, config)
+	// Create a single MediaSource, which is then reused by all peer connections
+	// to avoid subscribing to a potential single source multiple times.
+	mediaSource, err := createMediaSource(config.WithMedia, config.WithRtsp, config.RtspUrl)
 	if err != nil {
 		return err
 	}
 
-	err = createKeyPairPeers(stack, config)
+	err = createSharedSecretPeers(stack, config, mediaSource)
+	if err != nil {
+		return err
+	}
+
+	err = createKeyPairPeers(stack, config, mediaSource)
 	if err != nil {
 		return err
 	}
